@@ -7,26 +7,25 @@ from Layers.Net import *
 
 class SSDModel():
     def __init__(self):
-        ####################################
-        #       Create model               #
-        ####################################
-
-        # Create tensor variables to store input / output data
+        # ===== Create tensor variables to store input / output data =====
         self.X = T.tensor4('X')
 
-        # Create shared variable for input
+        # ===== Create model =====
+
+        # ----- Create net -----
         net = ConvNeuralNet()
         net.net_name = 'SSD Net'
 
+        # ----- Retrieve info from net -----
         _batch_size = self.X.shape[0]
 
-        # Input
+        # ----- Input -----
         net.layer['input_4d'] = InputLayer(net, self.X)
 
         net.layer_opts['pool_boder_mode']    = 1
         net.layer_opts['conv2D_border_mode'] = 1
 
-        # Stack 1
+        # ----- Stack 1 -----
         net.layer_opts['conv2D_filter_shape'] = (64, 3, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
         net.layer_opts['conv2D_border_mode']  = (1, 1)
@@ -46,7 +45,7 @@ class SSDModel():
         net.layer_opts['pool_mode'] = 'max'
         net.layer['pool1']   = Pool2DLayer(net, net.layer['relu1_2'].output)
 
-        # Stack 2
+        # ----- Stack 2 -----
         net.layer_opts['conv2D_filter_shape'] = (128, 64, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
         net.layer_opts['conv2D_border_mode']  = (1, 1)
@@ -65,7 +64,7 @@ class SSDModel():
 
         net.layer['pool2']   = Pool2DLayer(net, net.layer['relu2_2'].output)
 
-        # Stack 3
+        # ----- Stack 3 -----
         net.layer_opts['conv2D_filter_shape'] = (256, 128, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
         net.layer_opts['conv2D_border_mode']  = (1, 1)
@@ -92,7 +91,7 @@ class SSDModel():
 
         net.layer['pool3']   = Pool2DLayer(net, net.layer['relu3_3'].output)
 
-        # Stack 4
+        # ----- Stack 4 -----
         net.layer_opts['conv2D_filter_shape'] = (512, 256, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
         net.layer_opts['conv2D_border_mode']  = (1, 1)
@@ -123,6 +122,18 @@ class SSDModel():
         net.layer_opts['normalize_scale_name']   = 'conv4_3_scale'
         net.layer['conv4_3_norm']        = NormalizeLayer(net, net.layer['relu4_3'].output)
 
+        net.layer_opts['pool3D_stride']        = (2, 1, 1)
+        net.layer_opts['pool3D_padding']       = (0, 1, 1)
+        net.layer_opts['pool3D_mode']          = 'max'
+        net.layer_opts['pool3D_filter_size']   = (2, 3, 3)
+        net.layer_opts['pool3D_ignore_border'] = True
+        net.layer['conv4_3_norm_pool']   = Pool3DLayer(net, net.layer['conv4_3_norm'].output)
+
+        net.layer_opts['permute_dimension']      = (0, 2, 3, 1)
+        net.layer['conv4_3_norm_pool_perm']      = PermuteLayer(net, net.layer['conv4_3_norm_pool'].output)
+        net.layer_opts['flatten_ndim']           = 2
+        net.layer['conv4_3_norm_pool_flat'] = FlattenLayer(net, net.layer['conv4_3_norm_pool_perm'].output)
+
         # conv4_3_norm_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (84, 512, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -131,9 +142,9 @@ class SSDModel():
         net.layer_opts['conv2D_bName'] = 'conv4_3_norm_mbox_conf_b'
         net.layer['conv4_3_norm_mbox_conf'] = ConvLayer(net, net.layer['conv4_3_norm'].output)
 
-        net.layer_opts['permute_dimension']       = (0, 2, 3, 1)
+        net.layer_opts['permute_dimension']      = (0, 2, 3, 1)
         net.layer['conv4_3_norm_mbox_conf_perm'] = PermuteLayer(net, net.layer['conv4_3_norm_mbox_conf'].output)
-        net.layer_opts['flatten_ndim']            = 2
+        net.layer_opts['flatten_ndim']           = 2
         net.layer['conv4_3_norm_mbox_conf_flat'] = FlattenLayer(net, net.layer['conv4_3_norm_mbox_conf_perm'].output)
 
         # conv4_3_norm_mbox_loc
@@ -149,7 +160,7 @@ class SSDModel():
         net.layer_opts['flatten_ndim']           = 2
         net.layer['conv4_3_norm_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv4_3_norm_mbox_loc_perm'].output)
 
-        # Stack 5
+        # ----- Stack 5 -----
         net.layer_opts['conv2D_filter_shape'] = (512, 512, 3, 3)
         net.layer_opts['conv2D_WName'] = 'conv5_1_W'
         net.layer_opts['conv2D_bName'] = 'conv5_1_b'
@@ -174,7 +185,7 @@ class SSDModel():
         net.layer_opts['pool_padding']       = (1, 1)
         net.layer['pool5']    = Pool2DLayer(net, net.layer['relu5_3'].output)
 
-        # fc6 and fc7
+        # ----- fc6 and fc7 -----
         net.layer_opts['conv2D_filter_shape']    = (1024, 512, 3, 3)
         net.layer_opts['conv2D_stride']          = (1, 1)
         net.layer_opts['conv2D_border_mode']     = (6, 6)
@@ -193,7 +204,18 @@ class SSDModel():
         net.layer['fc7']   = ConvLayer(net, net.layer['relu6'].output)
         net.layer['relu7'] = ReLULayer(net.layer['fc7'].output)
 
-        # First sub convolution to get predicted box
+        net.layer_opts['pool3D_stride']        = (4, 1, 1)
+        net.layer_opts['pool3D_padding']       = (0, 1, 1)
+        net.layer_opts['pool3D_mode']          = 'max'
+        net.layer_opts['pool3D_filter_size']   = (4, 3, 3)
+        net.layer_opts['pool3D_ignore_border'] = True
+        net.layer['relu7_pool'] = Pool3DLayer(net, net.layer['relu7'].output)
+
+        net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
+        net.layer['relu7_pool_perm']        = PermuteLayer(net, net.layer['relu7_pool'].output)
+        net.layer_opts['flatten_ndim']      = 2
+        net.layer['relu7_pool_flat']        = FlattenLayer(net, net.layer['relu7_pool_perm'].output)
+
         # fc7_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (126, 1024, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -206,6 +228,19 @@ class SSDModel():
         net.layer['fc7_mbox_conf_perm']    = PermuteLayer(net, net.layer['fc7_mbox_conf'].output)
         net.layer_opts['flatten_ndim']      = 2
         net.layer['fc7_mbox_conf_flat']    = FlattenLayer(net, net.layer['fc7_mbox_conf_perm'].output)
+
+        # fc7_mbox_loc
+        net.layer_opts['conv2D_filter_shape'] = (24, 1024, 3, 3)
+        net.layer_opts['conv2D_stride'] = (1, 1)
+        net.layer_opts['conv2D_border_mode'] = (1, 1)
+        net.layer_opts['conv2D_WName'] = 'fc7_mbox_loc_W'
+        net.layer_opts['conv2D_bName'] = 'fc7_mbox_loc_b'
+        net.layer['fc7_mbox_loc'] = ConvLayer(net, net.layer['relu7'].output)
+
+        net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
+        net.layer['fc7_mbox_loc_perm'] = PermuteLayer(net, net.layer['fc7_mbox_loc'].output)
+        net.layer_opts['flatten_ndim'] = 2
+        net.layer['fc7_mbox_loc_flat'] = FlattenLayer(net, net.layer['fc7_mbox_loc_perm'].output)
 
         # conv6_1 and conv6_2
         net.layer_opts['conv2D_filter_shape'] = (256, 1024, 1, 1)
@@ -224,20 +259,18 @@ class SSDModel():
         net.layer['conv6_2'] = ConvLayer(net, net.layer['conv6_1_relu'].output)
         net.layer['conv6_2_relu'] = ReLULayer(net.layer['conv6_2'].output)
 
-        # fc7_mbox_loc
-        net.layer_opts['conv2D_filter_shape'] = (24, 1024, 3, 3)
-        net.layer_opts['conv2D_stride']       = (1, 1)
-        net.layer_opts['conv2D_border_mode']  = (1, 1)
-        net.layer_opts['conv2D_WName']        = 'fc7_mbox_loc_W'
-        net.layer_opts['conv2D_bName']        = 'fc7_mbox_loc_b'
-        net.layer['fc7_mbox_loc'] = ConvLayer(net, net.layer['relu7'].output)
+        net.layer_opts['pool3D_stride']        = (2, 1, 1)
+        net.layer_opts['pool3D_padding']       = (0, 1, 1)
+        net.layer_opts['pool3D_mode']          = 'max'
+        net.layer_opts['pool3D_filter_size']   = (2, 3, 3)
+        net.layer_opts['pool3D_ignore_border'] = True
+        net.layer['conv6_2_relu_pool'] = Pool3DLayer(net, net.layer['conv6_2_relu'].output)
 
         net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
-        net.layer['fc7_mbox_loc_perm']     = PermuteLayer(net, net.layer['fc7_mbox_loc'].output)
+        net.layer['conv6_2_relu_pool_perm'] = PermuteLayer(net, net.layer['conv6_2_relu_pool'].output)
         net.layer_opts['flatten_ndim']      = 2
-        net.layer['fc7_mbox_loc_flat']     = FlattenLayer(net, net.layer['fc7_mbox_loc_perm'].output)
+        net.layer['conv6_2_relu_pool_flat'] = FlattenLayer(net, net.layer['conv6_2_relu_pool_perm'].output)
 
-        # Second sub convolution to get predicted box
         # conv6_2_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (126, 512, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -250,6 +283,19 @@ class SSDModel():
         net.layer['conv6_2_mbox_conf_perm'] = PermuteLayer(net, net.layer['conv6_2_mbox_conf'].output)
         net.layer_opts['flatten_ndim']       = 2
         net.layer['conv6_2_mbox_conf_flat'] = FlattenLayer(net, net.layer['conv6_2_mbox_conf_perm'].output)
+
+        # conv6_2_mbox_loc
+        net.layer_opts['conv2D_filter_shape'] = (24, 512, 3, 3)
+        net.layer_opts['conv2D_stride']       = (1, 1)
+        net.layer_opts['conv2D_border_mode']  = (1, 1)
+        net.layer_opts['conv2D_WName']        = 'conv6_2_mbox_loc_W'
+        net.layer_opts['conv2D_bName']        = 'conv6_2_mbox_loc_b'
+        net.layer['conv6_2_mbox_loc'] = ConvLayer(net, net.layer['conv6_2_relu'].output)
+
+        net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
+        net.layer['conv6_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv6_2_mbox_loc'].output)
+        net.layer_opts['flatten_ndim']      = 2
+        net.layer['conv6_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv6_2_mbox_loc_perm'].output)
 
         # conv7_1 and conv7_2
         net.layer_opts['conv2D_filter_shape'] = (128, 512, 1, 1)
@@ -268,20 +314,11 @@ class SSDModel():
         net.layer['conv7_2']      = ConvLayer(net, net.layer['conv7_1_relu'].output)
         net.layer['conv7_2_relu'] = ReLULayer(net.layer['conv7_2'].output)
 
-        # conv6_2_mbox_loc
-        net.layer_opts['conv2D_filter_shape'] = (24, 512, 3, 3)
-        net.layer_opts['conv2D_stride']       = (1, 1)
-        net.layer_opts['conv2D_border_mode']  = (1, 1)
-        net.layer_opts['conv2D_WName']        = 'conv6_2_mbox_loc_W'
-        net.layer_opts['conv2D_bName']        = 'conv6_2_mbox_loc_b'
-        net.layer['conv6_2_mbox_loc'] = ConvLayer(net, net.layer['conv6_2_relu'].output)
-
         net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
-        net.layer['conv6_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv6_2_mbox_loc'].output)
+        net.layer['conv7_2_relu_perm']        = PermuteLayer(net, net.layer['conv7_2_relu'].output)
         net.layer_opts['flatten_ndim']      = 2
-        net.layer['conv6_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv6_2_mbox_loc_perm'].output)
+        net.layer['conv7_2_relu_flat']        = FlattenLayer(net, net.layer['conv7_2_relu_perm'].output)
 
-        # Third sub convolution to get predicted box
         # conv7_2_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (126, 256, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -294,6 +331,19 @@ class SSDModel():
         net.layer['conv7_2_mbox_conf_perm'] = PermuteLayer(net, net.layer['conv7_2_mbox_conf'].output)
         net.layer_opts['flatten_ndim']       = 2
         net.layer['conv7_2_mbox_conf_flat'] = FlattenLayer(net, net.layer['conv7_2_mbox_conf_perm'].output)
+
+        # conv7_2_mbox_loc
+        net.layer_opts['conv2D_filter_shape'] = (24, 256, 3, 3)
+        net.layer_opts['conv2D_stride']       = (1, 1)
+        net.layer_opts['conv2D_border_mode']  = (1, 1)
+        net.layer_opts['conv2D_WName'] = 'conv7_2_mbox_loc_W'
+        net.layer_opts['conv2D_bName'] = 'conv7_2_mbox_loc_b'
+        net.layer['conv7_2_mbox_loc'] = ConvLayer(net, net.layer['conv7_2_relu'].output)
+
+        net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
+        net.layer['conv7_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv7_2_mbox_loc'].output)
+        net.layer_opts['flatten_ndim']      = 2
+        net.layer['conv7_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv7_2_mbox_loc_perm'].output)
 
         # conv8_1 and conv8_2
         net.layer_opts['conv2D_filter_shape'] = (128, 256, 1, 1)
@@ -312,20 +362,11 @@ class SSDModel():
         net.layer['conv8_2'] = ConvLayer(net, net.layer['conv8_1_relu'].output)
         net.layer['conv8_2_relu'] = ReLULayer(net.layer['conv8_2'].output)
 
-        # conv7_2_mbox_loc
-        net.layer_opts['conv2D_filter_shape'] = (24, 256, 3, 3)
-        net.layer_opts['conv2D_stride']       = (1, 1)
-        net.layer_opts['conv2D_border_mode']  = (1, 1)
-        net.layer_opts['conv2D_WName'] = 'conv7_2_mbox_loc_W'
-        net.layer_opts['conv2D_bName'] = 'conv7_2_mbox_loc_b'
-        net.layer['conv7_2_mbox_loc'] = ConvLayer(net, net.layer['conv7_2_relu'].output)
-
         net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
-        net.layer['conv7_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv7_2_mbox_loc'].output)
+        net.layer['conv8_2_relu_perm']      = PermuteLayer(net, net.layer['conv8_2_relu'].output)
         net.layer_opts['flatten_ndim']      = 2
-        net.layer['conv7_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv7_2_mbox_loc_perm'].output)
+        net.layer['conv8_2_relu_flat']      = FlattenLayer(net, net.layer['conv8_2_relu_perm'].output)
 
-        # Fourth sub convolution to get predicted box
         # conv8_2_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (84, 256, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -338,6 +379,19 @@ class SSDModel():
         net.layer['conv8_2_mbox_conf_perm'] = PermuteLayer(net, net.layer['conv8_2_mbox_conf'].output)
         net.layer_opts['flatten_ndim']       = 2
         net.layer['conv8_2_mbox_conf_flat'] = FlattenLayer(net, net.layer['conv8_2_mbox_conf_perm'].output)
+
+        # conv8_2_mbox_loc
+        net.layer_opts['conv2D_filter_shape'] = (16, 256, 3, 3)
+        net.layer_opts['conv2D_stride'] = (1, 1)
+        net.layer_opts['conv2D_border_mode'] = (1, 1)
+        net.layer_opts['conv2D_WName'] = 'conv8_2_mbox_loc_W'
+        net.layer_opts['conv2D_bName'] = 'conv8_2_mbox_loc_b'
+        net.layer['conv8_2_mbox_loc'] = ConvLayer(net, net.layer['conv8_2_relu'].output)
+
+        net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
+        net.layer['conv8_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv8_2_mbox_loc'].output)
+        net.layer_opts['flatten_ndim'] = 2
+        net.layer['conv8_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv8_2_mbox_loc_perm'].output)
 
         # conv9_1 and conv9_2
         net.layer_opts['conv2D_filter_shape'] = (128, 256, 1, 1)
@@ -356,20 +410,11 @@ class SSDModel():
         net.layer['conv9_2']      = ConvLayer(net, net.layer['conv9_1_relu'].output)
         net.layer['conv9_2_relu'] = ReLULayer(net.layer['conv9_2'].output)
 
-        # conv8_2_mbox_loc
-        net.layer_opts['conv2D_filter_shape'] = (16, 256, 3, 3)
-        net.layer_opts['conv2D_stride']       = (1, 1)
-        net.layer_opts['conv2D_border_mode']  = (1, 1)
-        net.layer_opts['conv2D_WName'] = 'conv8_2_mbox_loc_W'
-        net.layer_opts['conv2D_bName'] = 'conv8_2_mbox_loc_b'
-        net.layer['conv8_2_mbox_loc'] = ConvLayer(net, net.layer['conv8_2_relu'].output)
-
         net.layer_opts['permute_dimension'] = (0, 2, 3, 1)
-        net.layer['conv8_2_mbox_loc_perm'] = PermuteLayer(net, net.layer['conv8_2_mbox_loc'].output)
+        net.layer['conv9_2_relu_perm']      = PermuteLayer(net, net.layer['conv9_2_relu'].output)
         net.layer_opts['flatten_ndim']      = 2
-        net.layer['conv8_2_mbox_loc_flat'] = FlattenLayer(net, net.layer['conv8_2_mbox_loc_perm'].output)
+        net.layer['conv9_2_relu_flat']      = FlattenLayer(net, net.layer['conv9_2_relu_perm'].output)
 
-        # Fifth sub convolution to get predicted box
         # conv9_2_mbox_conf
         net.layer_opts['conv2D_filter_shape'] = (84, 256, 3, 3)
         net.layer_opts['conv2D_stride']       = (1, 1)
@@ -409,15 +454,24 @@ class SSDModel():
                                                    net.layer['conv7_2_mbox_loc_flat'].output,
                                                    net.layer['conv8_2_mbox_loc_flat'].output,
                                                    net.layer['conv9_2_mbox_loc_flat'].output])
+        net.layer['feature']   = ConcatLayer(net, [net.layer['conv4_3_norm_pool_flat'].output,
+                                                   net.layer['relu7_pool_flat'].output,
+                                                   net.layer['conv6_2_relu_pool_flat'].output,
+                                                   net.layer['conv7_2_relu_flat'].output,
+                                                   net.layer['conv8_2_relu_flat'].output,
+                                                   net.layer['conv9_2_relu_flat'].output])
 
         net.layer_opts['reshape_new_shape'] = (_batch_size, 8732, 21)
-        net.layer['mbox_conf_reshape']     = ReshapeLayer(net, net.layer['mbox_conf'].output)
+        net.layer['mbox_conf_reshape']      = ReshapeLayer(net, net.layer['mbox_conf'].output)
 
-        net.layer_opts['softmax_axis']  = 2
-        net.layer['mbox_conf_softmax'] = SoftmaxLayer(net, net.layer['mbox_conf_reshape'].output)
+        net.layer_opts['softmax_axis']      = 2
+        net.layer['mbox_conf_softmax']      = SoftmaxLayer(net, net.layer['mbox_conf_reshape'].output)
 
         net.layer_opts['reshape_new_shape'] = (_batch_size, 8732, 4)
-        net.layer['mbox_loc_flatten']      = ReshapeLayer(net, net.layer['mbox_loc'].output)
+        net.layer['mbox_loc_flatten']       = ReshapeLayer(net, net.layer['mbox_loc'].output)
+
+        net.layer_opts['reshape_new_shape'] = (_batch_size, 1940, 256)
+        net.layer['feature_flatten']        = ReshapeLayer(net, net.layer['feature'].output)
 
         self.net = net
 
@@ -427,6 +481,10 @@ class SSDModel():
                             inputs  = [self.X],
                             outputs = [label,
                                        net.layer['mbox_loc_flatten'].output])
+
+        self.feat_func = theano.function(
+                            inputs  = [self.X],
+                            outputs = [net.layer['feature_flatten'].output])
 
         self.test_func = theano.function(
                             inputs  = [self.X],

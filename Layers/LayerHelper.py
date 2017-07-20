@@ -3,6 +3,7 @@ from InputLayer import *
 from ReshapeLayer import *
 from ConvLayer import *
 from Pool2DLayer import *
+from Pool3DLayer import *
 from HiddenLayer import *
 from DropoutLayer import *
 from ConcatLayer import *

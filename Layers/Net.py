@@ -115,6 +115,13 @@ class ConvNeuralNet(NeuralNet):
         self.layer_opts['pool_filter_size']   = (2, 2)
         self.layer_opts['pool_ignore_border'] = False
 
+        # Default options for pooling layers
+        self.layer_opts['pool3D_stride']        = (2, 2, 2)
+        self.layer_opts['pool3D_padding']       = (0, 0)
+        self.layer_opts['pool3D_mode']          = 'max'
+        self.layer_opts['pool3D_filter_size']   = (2, 2, 2)
+        self.layer_opts['pool3D_ignore_border'] = False
+
         # Network name for saving
         self.NetName = 'ConvNet'
 

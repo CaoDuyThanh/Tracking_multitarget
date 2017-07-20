@@ -1,6 +1,9 @@
 import numpy
 import theano
 
+def numpy_floatX(data):
+    return numpy.asarray(data, dtype = 'float32')
+
 def create_shared_parameter(_rng      = None,
                             _shape    = None,
                             _W_bound  = None,

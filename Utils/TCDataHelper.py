@@ -229,7 +229,7 @@ class TCDataHelper(DatasetHelper):
             return data['framespath'], ranObject
 
 
-    def GetAllFolderNames(self):
+    def get_all_folder_names(self):
         if self.data_opts['data_phase'] == 'train':
             allFolderNames = [folderName for folderName in self.TrainData]
             return allFolderNames

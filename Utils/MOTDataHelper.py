@@ -1,5 +1,6 @@
 import numpy
 import os
+import pickle, cPickle
 from DataHelper import DatasetHelper
 from FileHelper import *
 
@@ -49,95 +50,98 @@ class MOTDataHelper(DatasetHelper):
         return [cx, cy, width, height]
 
     # ------------------------  LOAD TRAIN | VALID | TEST FILES--------------------------------------------
-    def getDataFromOneFolder(self, path):
+    def get_data_from_one_folder(self, _path):
         # Check folder
-        check_path_exist(path)
+        check_path_exist(_path)
 
         # Config img1 folder exist
-        img1Folder = path + 'img1/';      check_path_exist(img1Folder)
+        _img1_folder = _path + 'img1/';      check_path_exist(_img1_folder)
 
         # Create empty dictionary stored all data
-        Data  = dict()
+        all_data  = dict()
 
         # Get image info
-        seqInfoPath = path + 'seqinfo.ini'
-        seqInfo     = read_file_ini(seqInfoPath)
-        imageInfo   = dict()
-        imageInfo['imagewidth'] = float(seqInfo['Sequence']['imWidth'])
-        imageInfo['imageheight'] = float(seqInfo['Sequence']['imHeight'])
-        Data['imageinfo'] = imageInfo
+        _seq_info_path = _path + 'seqinfo.ini'
+        _seq_info      = read_file_ini(_seq_info_path)
+        _image_info    = dict()
+        _image_info['imagewidth'] = float(_seq_info['Sequence']['imWidth'])
+        _image_info['imageheight'] = float(_seq_info['Sequence']['imHeight'])
+        all_data['imageinfo'] = _image_info
 
         # Read det.txt
-        detFolder  = path + 'det/';
-        if check_path_exist(detFolder, _throw_error= False):
-            Frames      = dict()
-            FramesPath  = dict()
-            ObjectId    = dict()
-            detFilePath = detFolder + 'det.txt';    check_file_exist(detFilePath)
-            allDets     = read_file(detFilePath)
-            for det in allDets:
-                data = det.split(',')
+        _det_folder = _path + 'det/';
+        if check_path_exist(_det_folder, _throw_error = False):
+            _frames        = dict()
+            _frames_path   = dict()
+            _object_ids    = dict()
+            _det_file_path = _det_folder + 'det.txt';    check_file_exist(_det_file_path)
+            _all_dets      = read_file(_det_file_path)
+            for _det in _all_dets:
+                data = _det.split(',')
 
-                frameId  = int(data[0])  # Which frame object appears
-                objectId = float(data[1])  # Number identifies that object as belonging to a tragectory by unique ID
-                topLeftX = float(data[2])  # Topleft corner of bounding box (x)
-                topLeftY = float(data[3])  # Topleft corner of bounding box (y)
-                width    = float(data[4])  # Width of the bounding box
-                height   = float(data[5])  # Height of the bounding box
-                isIgnore = float(data[6])  # Flag whether this particular instance is ignored in the evaluation
-                type     = float(data[7])  # Identify the type of object
-                                            #     Label                ID
-                                            # Pedestrian                1
-                                            # Person on vehicle         2
-                                            # Car                       3
-                                            # Bicycle                   4
-                                            # Motorbike                 5
-                                            # Non motorized vehicle     6
-                                            # Static person             7
-                                            # Distrator                 8
-                                            # Occluder                  9
-                                            # Occluder on the ground   10
-                                            # Occluder full            11
-                                            # Reflection               12
-                imPath   = os.path.join(img1Folder, '300x300/%06d.jpg' % (frameId))         # Change this
+                _frame_id   = int(data[0])  # Which frame object appears
+                _object_id  = float(data[1])  # Number identifies that object as belonging to a tragectory by unique ID
+                _top_left_x = float(data[2])  # Topleft corner of bounding box (x)
+                _top_left_y = float(data[3])  # Topleft corner of bounding box (y)
+                _width      = float(data[4])  # Width of the bounding box
+                _height     = float(data[5])  # Height of the bounding box
+                _is_ignore  = float(data[6])  # Flag whether this particular instance is ignored in the evaluation
+                _type       = float(data[7])  # Identify the type of object
+                                              #     Label                ID
+                                              # Pedestrian                1
+                                              # Person on vehicle         2
+                                              # Car                       3
+                                              # Bicycle                   4
+                                              # Motorbike                 5
+                                              # Non motorized vehicle     6
+                                              # Static person             7
+                                              # Distrator                 8
+                                              # Occluder                  9
+                                              # Occluder on the ground   10
+                                              # Occluder full            11
+                                              # Reflection               12
+                _im_path = os.path.join(_img1_folder, '300x300/%06d.jpg' % (_frame_id))         # Change this
 
-                if frameId not in Frames:
-                    Frames[frameId] = []
-                cx, cy, width, height = self._check_bbox(topLeftX, topLeftY, width, height, imageInfo['imagewidth'], imageInfo['imageheight'])
-                Frames[frameId].append([cx, cy, width, height, isIgnore, type, imPath])
+                if _frame_id not in _frames:
+                    _frames[_frame_id] = []
+                _cx, _cy, _width, _height = self._check_bbox(_top_left_x, _top_left_y, _width, _height, _image_info['imagewidth'], _image_info['imageheight'])
+                _frames[_frame_id].append([_cx, _cy, _width, _height, _is_ignore, _type, _im_path])
 
-                if objectId not in ObjectId:
-                    ObjectId[objectId] = frameId
+                if _object_id not in _object_ids:
+                    _object_ids[_object_id] = [_frame_id, _frame_id]
+                else:
+                    _object_ids[_object_id][1] = _frame_id
 
-                if frameId not in FramesPath:
-                    FramesPath[frameId] = os.path.abspath(os.path.join(img1Folder + '300x300/', '{0:06}'.format(frameId) + '.jpg'))
+                if _frame_id not in _frames_path:
+                    _frames_path[_frame_id] = os.path.abspath(os.path.join(_img1_folder + '300x300/', '{0:06}'.format(_frame_id) + '.jpg'))
 
-            DetData = dict()
-            DetData['frames']     = Frames
-            DetData['objectid']   = ObjectId
-            DetData['framespath'] = FramesPath
-            Data['det'] = DetData
+            det_data = dict()
+            det_data['frames']     = _frames
+            det_data['objectid']   = _object_ids
+            det_data['framespath'] = _frames_path
+            all_data['det'] = det_data
 
         # Read gt.txt
-        gtFolder = path + 'gt/';
-        if check_path_exist(gtFolder, _throw_error= False):
-            Frames     = dict()
-            FramesPath = dict()
-            ObjectId   = dict()
-            gtFilePath  = gtFolder + 'gt.txt';      check_file_exist(gtFilePath)
-            allGts = read_file(gtFilePath)
-            for gt in allGts:
-                data = gt.split(',')
+        _gt_folder = _path + 'gt/';
+        if check_path_exist(_gt_folder, _throw_error= False):
+            _frames       = dict()
+            _frames_path  = dict()
+            _object_ids   = dict()
+            _features     = dict()
+            _gt_file_path = _gt_folder + 'gt.txt';      check_file_exist(_gt_file_path)
+            _all_gts      = read_file(_gt_file_path)
+            for _gt in _all_gts:
+                data = _gt.split(',')
 
-                frameId  = int(data[0])      # Which frame object appears
-                objectId = int(data[1])      # Number identifies that object as belonging to a tragectory by unique ID
-                topLeftX = int(data[2])      # Topleft corner of bounding box (x)
-                topLeftY = int(data[3])      # Topleft corner of bounding box (y)
-                width    = int(data[4])      # Width of the bounding box
-                height   = int(data[5])      # Height of the bounding box
-                isIgnore = int(data[6])      # Flag whether this particular instance is ignored in the evaluation
-                type     = int(data[7])      # Identify the type of object
-                occluder = float(data[8])    # Occluder of object
+                _frame_id   = int(data[0])      # Which frame object appears
+                _object_id  = int(data[1])      # Number identifies that object as belonging to a tragectory by unique ID
+                _top_left_x = int(data[2])      # Topleft corner of bounding box (x)
+                _top_left_y = int(data[3])      # Topleft corner of bounding box (y)
+                _width      = int(data[4])      # Width of the bounding box
+                _height     = int(data[5])      # Height of the bounding box
+                _is_ignore  = int(data[6])      # Flag whether this particular instance is ignored in the evaluation
+                _type       = int(data[7])      # Identify the type of object
+                _occluder   = float(data[8])    # Occluder of object
                                                 #     Label                ID
                                                 # Pedestrian                1
                                                 # Person on vehicle         2
@@ -151,92 +155,102 @@ class MOTDataHelper(DatasetHelper):
                                                 # Occluder on the ground   10
                                                 # Occluder full            11
                                                 # Reflection               12
-                imPath    = os.path.join(img1Folder, '300x300/%06d.jpg' % (frameId))            # Change this
+                _im_path    = os.path.join(_img1_folder, '300x300/%06d.jpg' % (_frame_id))            # Change this
 
-                if frameId not in Frames:
-                    Frames[frameId] = dict()
-                cx, cy, width, height = self._check_bbox(topLeftX, topLeftY, width, height, imageInfo['imagewidth'], imageInfo['imageheight'])
-                Frames[frameId][objectId] = [frameId, cx, cy, width, height, isIgnore, type, occluder, imPath]
+                if _frame_id not in _frames:
+                    _frames[_frame_id] = dict()
+                _cx, _cy, _width, _height = self._check_bbox(_top_left_x, _top_left_y, _width, _height, _image_info['imagewidth'], _image_info['imageheight'])
+                _frames[_frame_id][_object_id] = [_frame_id, _cx, _cy, _width, _height, _is_ignore, _type, _occluder, _im_path]
 
-                if objectId not in ObjectId:
-                    ObjectId[objectId] = frameId
+                if _object_id not in _object_ids:
+                    _object_ids[_object_id] = [_frame_id, _frame_id]
+                else:
+                    _object_ids[_object_id][1] = _frame_id
 
-                if frameId not in FramesPath:
-                    FramesPath[frameId] = os.path.abspath(os.path.join(img1Folder + '300x300/   ', '{0:06}'.format(frameId) + '.jpg'))
+                if _frame_id not in _frames_path:
+                    _frames_path[_frame_id] = os.path.abspath(os.path.join(_img1_folder + '300x300/', '{0:06}'.format(_frame_id) + '.jpg'))
 
-            GtData = dict()
-            GtData['frames']     = Frames
-            GtData['objectid']   = ObjectId
-            GtData['framespath'] = FramesPath
-            Data['gt'] = GtData
+                if _frame_id not in _features:
+                    _feature_path =  os.path.join(_img1_folder, 'feature/%06d.pkl' % (_frame_id))
+                    if check_file_exist(_feature_path, _throw_error = False):
+                        _file = open(_feature_path)
+                        _features[_frame_id] = cPickle.load(_file)
+                        _file.close()
 
-        return Data
+            gt_data = dict()
+            gt_data['frames']     = _frames
+            gt_data['objectid']   = _object_ids
+            gt_data['framespath'] = _frames_path
+            gt_data['features']   = _features
+            all_data['gt'] = gt_data
+
+        return all_data
 
     def load_train_file(self):
-        self.TrainData        = dict()
-        for trainFolder in self.train_folders:
-            folderName = trainFolder.split('/')[-2]
-            self.TrainData[folderName] = self.getDataFromOneFolder(trainFolder)
+        self.train_data        = dict()
+        for _train_folder in self.train_folders:
+            _folder_name = _train_folder.split('/')[-2]
+            self.train_data[_folder_name] = self.get_data_from_one_folder(_train_folder)
 
     def load_test_file(self):
-        self.TestData        = dict()
-        for testFolder in self.test_folders:
-            folderName = testFolder.split('/')[-2]
-            self.TestData[folderName] = self.getDataFromOneFolder(testFolder)
+        self.test_data         = dict()
+        for _test_folder in self.test_folders:
+            _folder_name = _test_folder.split('/')[-2]
+            self.test_data[_folder_name] = self.get_data_from_one_folder(_test_folder)
 
     # -----------------------------------------------------------------------------------------------------
     def get_frames_path(self,
-                        folderName,
-                        startFrame = 1,  # None = Start from the first frame
-                      endFrame   = 10000000  # None = To the end of frame
+                        _folder_name,
+                        _start_frame = 1,  # None = Start from the first frame
+                        _end_frame   = 10000000  # None = To the end of frame
                         ):
-        frameId = startFrame
-        framesPath = []
-        while (frameId < endFrame):
-            if frameId not in self.TrainData[folderName]['gt']['framespath']:
+        _frame_id   = _start_frame
+        frames_path = []
+        while (_frame_id < _end_frame):
+            if _frame_id not in self.train_data[_folder_name]['gt']['framespath']:
                 break;
-            framesPath.append(self.TrainData[folderName]['gt']['framespath'][frameId])
-            frameId += 1
+            frames_path.append(self.train_data[_folder_name]['gt']['framespath'][_frame_id])
+            _frame_id += 1
 
-        return framesPath
+        return frames_path
 
     def get_all_object_ids(self):
         if self.data_opts['data_phase'] == 'train':
-            folderName   = self.data_opts['data_folder_name']
-            folderType   = self.data_opts['data_folder_type']
-            data         = self.TrainData[folderName][folderType]
-            allObjectIds = [objectId for objectId in data['objectid']]
-            return allObjectIds
+            _folder_name    = self.data_opts['data_folder_name']
+            _folder_type    = self.data_opts['data_folder_type']
+            _data           = self.train_data[_folder_name][_folder_type]
+            all_object_ids = [_object_id for _object_id in _data['objectid']]
+            return all_object_ids
 
         if self.data_opts['data_phase'] == 'test':
             assert 'Do not support get AllObjectIds from test'
 
     def get_random_bbox(self):
         if self.data_opts['data_phase'] == 'train':
-            folderName = self.data_opts['data_folder_name']
-            folderType = self.data_opts['data_folder_type']
-            data = self.TrainData[folderName][folderType]
-            firstFrames = data['frames'][1]
-            ranObject = firstFrames[1]
-            return data['framespath'], ranObject
+            _folder_name  = self.data_opts['data_folder_name']
+            _folder_type  = self.data_opts['data_folder_type']
+            data          = self.train_data[_folder_name][_folder_type]
+            _first_frames = data['frames'][1]
+            ran_object    = _first_frames[1]
+            return data['framespath'], ran_object
 
         if self.data_opts['data_phase'] == 'test':
-            folderName   = self.data_opts['data_folder_name']
-            folderType   = self.data_opts['data_folder_type']
-            data         = self.TestData[folderName][folderType]
-            firstFrames  = data['frames'][1]
-            ranObject    = firstFrames[1]
-            return data['framespath'], ranObject
-
+            _folder_name   = self.data_opts['data_folder_name']
+            _folder_type   = self.data_opts['data_folder_type']
+            data           = self.test_data[_folder_name][_folder_type]
+            _first_frames  = data['frames'][1]
+            ran_object     = _first_frames[1]
+            return data['framespath'], ran_object
 
     def get_all_folder_names(self):
+        all_folder_names = []
         if self.data_opts['data_phase'] == 'train':
-            allFolderNames = [folderName for folderName in self.TrainData]
-            return allFolderNames
+            all_folder_names = [_folder_name for _folder_name in self.train_data]
 
         if self.data_opts['data_phase'] == 'test':
-            allFolderNames = [folderName for folderName in self.TestData]
-            return allFolderNames
+            all_folder_names = [_folder_name for _folder_name in self.test_data]
+
+        return all_folder_names
 
     def get_object_ids_by_frame(self,
                                 _frame_id):
@@ -248,7 +262,7 @@ class MOTDataHelper(DatasetHelper):
             assert 'Get object ids by frame must in gt folder'
 
         if _data_phase == 'train':
-            _data           = self.TrainData[_folder_name]
+            _data           = self.train_data[_folder_name]
             _frames         = _data[_folder_type]['frames']
             _selected_frame = _frames[_frame_id]
 
@@ -263,31 +277,75 @@ class MOTDataHelper(DatasetHelper):
             return all_bboxs, all_object_ids
 
     def get_sequence_by(self,
-                        occluderThres = 0.5):
-        dataPhase  = self.data_opts['data_phase']
-        folderName = self.data_opts['data_folder_name']
-        folderType = self.data_opts['data_folder_type']
-        objectId   = self.data_opts['data_object_id']
+                        _occluder_thres = 0.5):
+        _data_phase  = self.data_opts['data_phase']
+        _folder_name = self.data_opts['data_folder_name']
+        _folder_type = self.data_opts['data_folder_type']
+        _object_id   = self.data_opts['data_object_id']
 
-        if dataPhase == 'det':
+        if _data_phase == 'det':
             assert 'Get sequence data must in gt folder'
 
-        if dataPhase == 'train':
-            data        = self.TrainData[folderName]
-            object_id   = data[folderType]['objectid']
-            frame_start = object_id[objectId]
-            frames      = data[folderType]['frames']
-            ims_path    = []
-            bbox        = []
-            while frame_start < max(frames):
-                currentFrame = frames[frame_start]
-                if objectId in currentFrame:
-                    if currentFrame[objectId][7] >= occluderThres:
-                        ims_path.append(currentFrame[objectId][-1])
-                        bbox.append(currentFrame[objectId][1:5])
+        if _data_phase == 'train':
+            _data          = self.train_data[_folder_name]
+            _all_object_id = _data[_folder_type]['objectid']
+            frame_start,\
+            frame_end      = _all_object_id[_object_id]
+            _frames        = _data[_folder_type]['frames']
+            ims_path       = []
+            bbox           = []
+            frame_end = min(frame_end + 1, max(_frames))
+            while frame_start <= frame_end:
+                _current_frame = _frames[frame_start]
+                if _object_id in _current_frame:
+                    if _current_frame[_object_id][7] >= _occluder_thres:
+                        ims_path.append(_current_frame[_object_id][-1])
+                        bbox.append(_current_frame[_object_id][1:5])
                 frame_start += 1
 
             return ims_path, bbox, frame_start
+
+        if self.data_opts['data_phase'] == 'test':
+            assert 'Do not support get Sequence from test'
+
+    def get_feature_by(self,
+                       _occluder_thres=0.5):
+        _data_phase  = self.data_opts['data_phase']
+        _folder_name = self.data_opts['data_folder_name']
+        _folder_type = self.data_opts['data_folder_type']
+        _object_id   = self.data_opts['data_object_id']
+
+        if _data_phase == 'det':
+            assert 'Get sequence data must in gt folder'
+
+        if _data_phase == 'train':
+            _data          = self.train_data[_folder_name]
+            _all_object_id = _data[_folder_type]['objectid']
+            frame_start,\
+            frame_end      = _all_object_id[_object_id]
+            _frames        = _data[_folder_type]['frames']
+            _features      = _data[_folder_type]['features']
+            features    = []
+            bbox        = []
+            all_bbox    = []
+            ims_path    = []
+            frame_end   = min(frame_end + 1, max(_frames))
+            while frame_start <= frame_end:
+                _current_frame = _frames[frame_start]
+                if _object_id in _current_frame:
+                    if _current_frame[_object_id][7] >= _occluder_thres:
+                        features.append(_features[frame_start])
+                        bbox.append(_current_frame[_object_id][1:5])
+                        ims_path.append(_current_frame[_object_id][-1])
+
+                        _all_bbox = []
+                        for _id, _item in _current_frame.iteritems():
+                            _all_bbox.append(_item[1:5])
+                        all_bbox.append(_all_bbox)
+
+                frame_start += 1
+
+            return features, bbox, all_bbox, ims_path
 
         if self.data_opts['data_phase'] == 'test':
             assert 'Do not support get Sequence from test'

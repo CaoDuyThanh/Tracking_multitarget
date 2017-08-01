@@ -88,7 +88,7 @@ def _sort_data(_data):
 
         dataset.data_opts['data_folder_name'] = _folder_name
         dataset.data_opts['data_object_id']   = _object_id
-        _ims_path, _, _ = dataset.get_sequence_by(occluderThres=0.5)
+        _ims_path, _, _ = dataset.get_sequence_by(_occluder_thres=0.5)
         _data_sizes[_idx] = _ims_path.__len__()
 
     _sorted_idx = numpy.argsort(_data_sizes, axis = 0)

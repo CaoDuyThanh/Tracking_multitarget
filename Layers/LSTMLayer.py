@@ -8,7 +8,7 @@ class LSTMLayer(BasicLayer):
     def __init__(self,
                  net):
         # Save all information to its layer
-        self.net_name     = net.NetName
+        self.net_name     = net.net_name
         self.num_hidden   = net.layer_opts['lstm_hidden_size']
         self.input_size   = net.layer_opts['lstm_input_size']
         self.output_size  = net.layer_opts['lstm_output_size']
@@ -48,10 +48,10 @@ class LSTMLayer(BasicLayer):
                           [bi, bf, bc, bo]
 
     def step(self,
-             input,
-             ckm1,
-             hkm1,
-             output):
+             _input_x,
+             _hkm1,
+             _ckm1,
+             _output_y):
         # Get all weight from param
         Wi = self.params[0]
         Wf = self.params[1]
@@ -68,20 +68,21 @@ class LSTMLayer(BasicLayer):
         bc = self.params[12]
         bo = self.params[13]
 
-        inputI = T.dot(input, Wi)
-        inputF = T.dot(input, Wf)
-        inputO = T.dot(input, Wo)
-        inputG = T.dot(input, Wc)
+        _input_i = T.dot(_input_x, Wi)
+        _input_f = T.dot(_input_x, Wf)
+        _input_o = T.dot(_input_x, Wo)
+        _input_g = T.dot(_input_x, Wc)
 
         # Calculate to next layer
-        i = T.nnet.sigmoid(inputI + T.dot(hkm1, Ui) + bi)
-        f = T.nnet.sigmoid(inputF + T.dot(hkm1, Uf) + bf)
-        o = T.nnet.sigmoid(inputO + T.dot(hkm1, Uo) + bo)
-        g = T.tanh(inputG + T.dot(hkm1, Uc) + bc)
+        _i = T.nnet.sigmoid(_input_i + T.dot(_hkm1, Ui) + bi)
+        _f = T.nnet.sigmoid(_input_f + T.dot(_hkm1, Uf) + bf)
+        _o = T.nnet.sigmoid(_input_o + T.dot(_hkm1, Uo) + bo)
+        _g = T.tanh(_input_g + T.dot(_hkm1, Uc) + bc)
 
-        C = ckm1 * f + g * i
-        H = T.tanh(C) * o
-        Output = T.dot(H, Wy) + by
-        Prob   = T.nnet.softmax(Output)
+        C = _ckm1 * _f + _g * _i
+        H = T.tanh(C) * _o
 
-        return C, H, Prob
+        output_y = T.dot(H, Wy) + by
+        prob_y   = T.nnet.softmax(output_y)
+
+        return C, prob_y

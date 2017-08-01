@@ -5,95 +5,146 @@ from Layers.LayerHelper import *
 
 class DAFeatModel():
     def __init__(self,
-                 da_input_size    = 40,
-                 da_hidden_size   = 512,
-                 da_output_size   = 40):
-        ####################################
-        #       Create model               #
-        ####################################
-        # ========== Create tensor variables to store input / output data ==========
-        # ===== DAFeat Input =====
-        self.DAFeat_  = T.tensor3('DA_C')
-        self.DA_A  = T.tensor3('DA_A')
+                 _dafeat_en_input_size  = 256,
+                 _dafeat_en_hidden_size = 512,
+                 _dafeat_de_input_size  = 256,
+                 _dafeat_de_output_size = 256):
+        # ===== Create model =====
 
-        # ===== Extract Info =====
-        num_truncate = self.DA_C.shape[0]
-        num_object   = self.DA_C.shape[1]
+        # ----- Create tensor -----
+        self.encode_x_batch = T.tensor3('EncodeXBatch')
+        self.decode_x_batch = T.tensor3('DecodeXBatch')
+        self.decode_y_batch = T.tensor3('DecodeYBatch')
 
-        # ========== Create encoder LSTM layer ==========
-        # ===== Create Data Association net =====
-        self.DA_net         = LSTMNet()             # Data Association net
-        self.DA_net.NetName = 'DA Net'
-        self.DA_net.layer_opts['lstm_input_size']  = da_input_size
-        self.DA_net.layer_opts['lstm_hidden_size'] = da_hidden_size
-        self.DA_net.layer_opts['lstm_output_size'] = da_output_size
+        # ----- Extract Info -----
+        _num_truncate = self.encode_x_batch.shape[0]
+        _num_object   = self.encode_x_batch.shape[1]
 
-        # ===== Create LSTM layer =====
-        self.DA_net.layer_opts['lstm_trun'] = LSTMLayer(self.DA_net)
+        # ----- Create encoder RNN layer -----
+        self.DAFeat_en_net          = RNNNet()
+        self.DAFeat_en_net.net_name = 'DAFeat_Encode'
+        self.DAFeat_en_net.layer_opts['rnn_input_size']  = _dafeat_en_input_size
+        self.DAFeat_en_net.layer_opts['rnn_hidden_size'] = _dafeat_en_hidden_size
+        self.DAFeat_en_net.layer_opts['rnn_output_size'] = 2
+        self.DAFeat_en_net.layer['rnn_trun']             = RNNLayer(self.DAFeat_en_net)
 
-        # ===== DA step =====
-        _DA_output, _DA_update = theano.scan(self.DA_net.layer_opts['lstm_trun'].step,
-                                           sequences    = [self.DA_C],
-                                           outputs_info = [T.alloc(numpy_floatX(0.),
-                                                                   num_object,
-                                                                   da_hidden_size),
-                                                           T.alloc(numpy_floatX(0.),
-                                                                   num_object,
-                                                                   da_hidden_size),
-                                                           T.alloc(numpy_floatX(0.),
-                                                                   num_object,
-                                                                   da_output_size)],
-                                           n_steps      = num_truncate)
+        _en_output, _en_update = theano.scan(self.DAFeat_en_net.layer['rnn_trun'].step,
+                                             sequences    = [self.encode_x_batch],
+                                             outputs_info = [T.alloc(numpy_floatX(0.),
+                                                                     _num_object,
+                                                                     _dafeat_en_hidden_size),
+                                                             T.alloc(numpy_floatX(0.),
+                                                                     _num_object,
+                                                                     2)],
+                                             n_steps      = _num_truncate)
+        _en_Hs = _en_output[0]
 
-        # ========== Calculate cost function ==========
-        # ===== Confidence loss =====
-        _A_prob     = _DA_output[2]
-        _A_pred     = T.argmax(_A_prob, axis = 2)
-        _cost_batch = T.sum(self.DA_A * -T.log(_A_prob))
-        _cost_batch /= num_truncate
+        # ----- Create decoder LSTM layer -----
+        self.DAFeat_de_net          = LSTMNet()
+        self.DAFeat_de_net.net_name = 'DAFeat_Decode'
+        self.DAFeat_de_net.layer_opts['lstm_input_size']  = _dafeat_de_input_size
+        self.DAFeat_de_net.layer_opts['lstm_hidden_size'] = _dafeat_en_hidden_size
+        self.DAFeat_de_net.layer_opts['lstm_output_size'] = _dafeat_de_output_size
+        self.DAFeat_de_net.layer['lstm_trun']             = LSTMLayer(self.DAFeat_de_net)
 
-        # ===== Update params =====
-        _params = self.DA_net.layer_opts['lstm_trun'].params
+        _de_output, _de_update = theano.scan(self.DAFeat_de_net.layer['lstm_trun'].step,
+                                             sequences    = [self.decode_x_batch,
+                                                             _en_Hs],
+                                             outputs_info = [T.alloc(numpy_floatX(0.),
+                                                                     _num_object,
+                                                                     _dafeat_en_hidden_size),
+                                                             T.alloc(numpy_floatX(0.),
+                                                                     _num_object,
+                                                                     _dafeat_de_output_size)],
+                                             n_steps      = _num_truncate)
+        _prob = _de_output[1]
+
+        # ----- Confidence loss -----
+        _A_pred      = T.argmax(_prob, axis = 2)
+        _cost_batch  = T.sum(self.decode_y_batch * -T.log(_prob))
+        _cost_batch /= _num_truncate
+
+        # ----- Params -----
+        _params = self.DAFeat_en_net.layer['rnn_trun'].params[:3] + \
+                  self.DAFeat_de_net.layer['lstm_trun'].params
         _grads  = T.grad(_cost_batch, _params)
+        self.grads = _grads
 
-        self.optimizer = AdamGDUpdate(self.DA_net, params = _params, grads = _grads)
+        # ----- Optimizer -----
+        self.optimizer = AdamGDUpdate(self.DAFeat_en_net, params = _params, grads = _grads)
         _magnitude = 0
         for grad in self.optimizer.grads:
             _magnitude += T.sqr(grad).sum()
         _magnitude = T.sqrt(_magnitude)
 
-        updates =    _DA_update \
-                   + self.optimizer.updates
+        # ----- Update -----
+        updates = _en_update + \
+                  _de_update + \
+                  self.optimizer.updates
 
-        # ========== Call functions ==========
-        # ===== Train function =====
+        # ===== Functions =====
+        # ----- Train function -----
         self.train_func = theano.function(inputs  = [self.optimizer.learning_rate,
-                                                     self.DA_C,
-                                                     self.DA_A],
+                                                     self.encode_x_batch,
+                                                     self.decode_x_batch,
+                                                     self.decode_y_batch],
                                           updates = updates,
+                                          outputs = [_cost_batch, _magnitude])
+
+        # ----- Valid function -----
+        self.valid_func = theano.function(inputs  = [self.encode_x_batch,
+                                                     self.decode_x_batch,
+                                                     self.decode_y_batch],
                                           outputs = [_cost_batch])
 
-        # ===== Valid function =====
-        self.valid_func = theano.function(inputs  = [self.DA_C,
-                                                     self.DA_A],
-                                          outputs = [_cost_batch])
+    # def create_func(self,
+    #                 id):
+    #     self.test = theano.function(inputs=[self.encode_x_batch,
+    #                                         self.decode_x_batch,
+    #                                         self.decode_y_batch],
+    #                                 outputs = self.grads[id])
 
-        # ===== Pred function =====
-        self.prob_func = theano.function(inputs=[self.DA_C],
-                                         outputs=[_A_prob])
-        self.pred_func  = theano.function(inputs  = [self.DA_C],
-                                          outputs = [_A_pred])
+    # def _cost_step(self,
+    #                _prob,
+    #                _target):
+    #     _all_conf_pos_cost = - _target * T.log(_prob)
+    #     _all_conf_neg_cost = - (1 - _target) * T.log(1 - _prob)
+    #
+    #     _all_pos_cost_sum  = T.sum(_all_conf_pos_cost, axis = 1)
+    #     _all_neg_cost_sum  = T.sum(_all_conf_neg_cost, axis = 1)
+    #
+    #     _sorted_pos_cost_idx = T.argsort(_all_pos_cost_sum, axis = 0)
+    #     _sorted_neg_cost_idx = T.argsort(_all_neg_cost_sum, axis = 0)
+    #
+    #     _sorted_pos_cost = _all_pos_cost_sum[_sorted_pos_cost_idx]
+    #     _sorted_neg_cost = _all_neg_cost_sum[_sorted_neg_cost_idx]
+    #
+    #     _num_pos_max = T.sum(T.neg(_sorted_pos_cost, 0))
+    #     _num_neg_max = T.cast(T.floor(_num_pos_max * 3), dtype = 'int32')
+    #
+    #     _top2_pos_cost = _sorted_pos_cost[ : _num_pos_max]
+    #     _top6_pos_cost = _sorted_neg_cost[ : _num_neg_max]
+    #
+    #     _layer_cost = T.where(_num_pos_max > 0, (T.sum(_top2_pos_cost) + T.sum(_top6_pos_cost)) / _num_pos_max, 0)
+    #     _layer_pos  = T.where(_num_pos_max > 0, _prob[_sorted_pos_cost_idx[ - _num_pos_max : ]].sum() / _num_pos_max, 0)
+    #     _layer_neg  = T.where(_num_pos_max > 0, _prob[_sorted_neg_cost_idx[ - _num_neg_max : ]].sum() / _num_neg_max, 0)
+    #
+    #     return _layer_cost, _layer_pos, _layer_neg
 
     def save_model(self, file):
-        self.DA_net.layer_opts['lstm_trun'].save_model(file)
+        self.DAFeat_en_net.layer['rnn_trun'].save_model(file)
+        self.DAFeat_de_net.layer['lstm_trun'].save_model(file)
 
     def save_state(self, file):
-        self.DA_net.layer_opts['lstm_trun'].save_model(file)
+        self.DAFeat_en_net.layer['rnn_trun'].save_model(file)
+        self.DAFeat_de_net.layer['lstm_trun'].save_model(file)
         self.optimizer.save_model(file)
 
     def load_model(self, file):
-        self.DA_net.layer_opts['lstm_trun'].load_model(file)
+        self.DAFeat_en_net.layer['rnn_trun'].load_model(file)
+        self.DAFeat_de_net.layer['lstm_trun'].load_model(file)
 
     def load_state(self, file):
-        self.DA_net.layer_opts['lstm_trun'].load_model(file)
+        self.DAFeat_en_net.layer['rnn_trun'].load_model(file)
+        self.DAFeat_de_net.layer['lstm_trun'].load_model(file)
         self.optimizer.load_model(file)

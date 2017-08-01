@@ -71,7 +71,6 @@ def read_images(_ims_path,
         if _im_path != '':
             _extension = _im_path.split('.')[-1]
             _im = plt.imread(_im_path, _extension)
-            # im = skimage.transform.resize(im, (300, 300), preserve_range=True)    # Change this
             _im = cv2.resize(_im, (300, 300), interpolation = cv2.INTER_LINEAR)
             _im = _im[:, :, [2, 1, 0]]
             _im = numpy.transpose(_im, (2, 0, 1))

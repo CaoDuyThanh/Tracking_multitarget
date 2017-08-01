@@ -34,7 +34,8 @@ class DefaultBBox():
         self.create_default_box()
 
     def create_default_box(self):
-        self.list_default_boxes = []
+        self.list_default_boxes    = []
+        self.list_id_feature_boxes = []
 
         if self.steps is None:
             self.steps = []
@@ -53,6 +54,7 @@ class DefaultBBox():
             self.min_sizes = [self.image_width * 10 / 100.] + self.min_sizes
             self.max_sizes = [self.image_width * 20 / 100.] + self.max_sizes
 
+        _count = 0
         for _k, _layer_size in enumerate(self.layer_sizes):
             _layer_width  = _layer_size[0]
             _layer_height = _layer_size[1]
@@ -73,28 +75,30 @@ class DefaultBBox():
 
                     # first prior: aspect_ratio = 1, size = min_size
                     _box_width = _box_height = _min_size
-                    # xmin
-                    _x_min = (_center_x - _box_width / 2.)  / self.image_width
-                    # ymin
-                    _y_min = (_center_y - _box_height / 2.) / self.image_height
-                    # xmax
-                    _x_max = (_center_x + _box_width / 2.)  / self.image_width
-                    # ymax
-                    _y_max = (_center_y + _box_height / 2.) / self.image_height
-                    self.list_default_boxes.append([_x_min, _y_min, _x_max, _y_max])
+                    # cx
+                    _cx = _center_x  / self.image_width
+                    # cy
+                    _cy = _center_y / self.image_height
+                    # w
+                    _wi = _box_width  / self.image_width
+                    # h
+                    _he = _box_height / self.image_height
+                    self.list_default_boxes.append([_cx, _cy, _wi, _he])
+                    self.list_id_feature_boxes.append(_count)
 
                     if _max_size > 0:
                         # second prior: aspect_ratio = 1, size = sqrt(min_size * max_size)
                         _box_width = _box_height = math.sqrt(_min_size * _max_size);
-                        # xmin
-                        _x_min = (_center_x - _box_width / 2.)  / self.image_width
-                        # ymin
-                        _y_min = (_center_y - _box_height / 2.) / self.image_height
-                        # xmax
-                        _x_max = (_center_x + _box_width / 2.)  / self.image_width
-                        # ymax
-                        _y_max = (_center_y + _box_height / 2.) / self.image_height
-                        self.list_default_boxes.append([_x_min, _y_min, _x_max, _y_max])
+                        # cx
+                        _cx = _center_x / self.image_width
+                        # cy
+                        _cy = _center_y / self.image_height
+                        # w
+                        _wi = _box_width / self.image_width
+                        # h
+                        _he = _box_height / self.image_height
+                        self.list_default_boxes.append([_cx, _cy, _wi, _he])
+                        self.list_id_feature_boxes.append(_count)
 
                     for _ar in _aspect_ratio:
                         if _ar == 1:
@@ -103,17 +107,21 @@ class DefaultBBox():
                         _box_width  = _min_size * math.sqrt(_ar)
                         _box_height = _min_size / math.sqrt(_ar)
 
-                        # xmin
-                        _x_min = (_center_x - _box_width / 2.)  / self.image_width
-                        # ymin
-                        _y_min = (_center_y - _box_height / 2.) / self.image_height
-                        # xmax
-                        _x_max = (_center_x + _box_width / 2.)  / self.image_width
-                        # ymax
-                        _y_max = (_center_y + _box_height / 2.) / self.image_height
-                        self.list_default_boxes.append([_x_min, _y_min, _x_max, _y_max])
+                        # cx
+                        _cx = _center_x / self.image_width
+                        # cy
+                        _cy = _center_y / self.image_height
+                        # w
+                        _wi = _box_width / self.image_width
+                        # h
+                        _he = _box_height / self.image_height
+                        self.list_default_boxes.append([_cx, _cy, _wi, _he])
+                        self.list_id_feature_boxes.append(_count)
 
-        self.list_default_boxes = numpy.asarray(self.list_default_boxes, dtype = 'float32')
+                    _count += 1
+
+        self.list_default_boxes    = numpy.asarray(self.list_default_boxes, dtype = 'float32')
+        self.list_id_feature_boxes = numpy.asarray(self.list_id_feature_boxes, dtype = 'int32')
 
     def bbox(self,
              _preds_batch,
@@ -125,14 +133,10 @@ class DefaultBBox():
             _boxes = _boxes_batch[_batch_id]
             for _id, _box in enumerate(_boxes):
                 _archor_box = self.list_default_boxes[_id]
-                _archor_xmin = _archor_box[0]
-                _archor_ymin = _archor_box[1]
-                _archor_xmax = _archor_box[2]
-                _archor_ymax = _archor_box[3]
-                _cx = (_archor_xmin + _archor_xmax) / 2
-                _cy = (_archor_ymin + _archor_ymax) / 2
-                _w  = (_archor_xmax - _archor_xmin)
-                _h  = (_archor_ymax - _archor_ymin)
+                _cx = _archor_box[0]
+                _cy = _archor_box[1]
+                _w  = _archor_box[2]
+                _h  = _archor_box[3]
 
                 _offset_xmin = _box[0]
                 _offset_ymin = _box[1]

@@ -65,7 +65,7 @@ class ConvLayer():
         self.output = _conv_output + _rp_biases
 
     def save_model(self, file):
-        [pickle.dump(param.get_value(borrow = True), file, 0) for param in self.params]
+        [pickle.dump(param.get_value(borrow = True), file, 2) for param in self.params]
 
     def load_model(self, file):
         [param.set_value(cPickle.load(file), borrow=True) for param in self.params]

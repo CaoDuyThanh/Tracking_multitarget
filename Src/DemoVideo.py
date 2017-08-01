@@ -4,6 +4,7 @@ import matplotlib.patches as patches
 from Utils.MOTDataHelper import *
 from Models.SSD_300x300.SSDModel import *
 from Models.SSD_300x300.SSDVehicleModel import *
+from Models.SSD_300x300.SSDFeVehicleModel import *
 from Models.LSTM.DAModel import *
 from Utils.DefaultBox import *
 from Utils.PlotManager import *
@@ -44,22 +45,10 @@ DA_HIDDEN_SIZE = 512
 DA_OUTPUT_SIZE = 70
 
 # GLOBAL VARIABLES
-dataset           = None
 default_bboxs     = None
 SSD_model         = None
 DA_model          = None
 plot_manager      = None
-
-########################################################################################################################
-#                                                                                                                      #
-#    LOAD DATASET SESSIONS                                                                                             #
-#                                                                                                                      #
-########################################################################################################################
-def _load_dataset():
-    global dataset
-    if DATASET_SOURCE == 'MOT':
-        dataset = MOTDataHelper(DATASET_PATH)
-
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -211,13 +200,12 @@ def _create_plot_manager():
 #                                                                                                                      #
 ########################################################################################################################
 def _test_model():
-    global dataset, \
-           default_bboxs, \
+    global default_bboxs, \
            SSD_model, \
            DA_model, \
            plot_manager
     if TEST_VEHICLE:
-        IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-03/img1/%06d.jpg'
+        IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-02/img1/%06d.jpg'
     else:
         IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/MOT16/train/MOT16-05/img1/%06d.jpg'
 
@@ -251,7 +239,6 @@ def _test_model():
 
 if __name__ == '__main__':
     _create_plot_manager()
-    _load_dataset()
     _create_SSD_model()
     _create_DA_model()
     _test_model()

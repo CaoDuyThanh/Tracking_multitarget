@@ -218,7 +218,7 @@ def _test_model():
            DA_model, \
            plot_manager
     if TEST_VEHICLE:
-        IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-03/img1/%06d.jpg'
+        IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-02/img1/%06d.jpg'
     else:
         IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/MOT16/train/MOT16-05/img1/%06d.jpg'
 

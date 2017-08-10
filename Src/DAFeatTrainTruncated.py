@@ -31,18 +31,18 @@ TEST_RATIO  = 0.1
 # TRAINING HYPER PARAMETER
 TRAIN_STATE        = 1    # Training state
 VALID_STATE        = 0    # Validation state
-BATCH_SIZE         = 16
+BATCH_SIZE         = 5
 NUM_TRUNCATE       = 6
 NUM_EPOCH          = 3000
 MAX_ITERATION      = 100000
 LEARNING_RATE      = 0.00005      # Starting learning rate
 DISPLAY_FREQUENCY  = 100;         INFO_DISPLAY = '\r%sLearning rate = %f - Epoch = %d - Iter = %d - Cost = %f - Best cost = %f - Best prec = %f - Mags = %f'
-SAVE_FREQUENCY     = 2000
-VALIDATE_FREQUENCY = 1000
+SAVE_FREQUENCY     = 10000
+VALIDATE_FREQUENCY = 2000
 
 # LSTM NETWORK CONFIG
 NUM_OBJECT        = 65
-DA_EN_INPUT_SIZE  = 128 + 4
+DA_EN_INPUT_SIZE  = 128 * 6 + 4
 DA_EN_HIDDEN_SIZE = 256
 DA_DE_INPUT_SIZE  = (128 + 4) * NUM_OBJECT
 DA_DE_OUTPUT_SIZE = NUM_OBJECT + 1
@@ -56,8 +56,8 @@ SAVE_PATH       = '../Pretrained/Epoch=%d_Iter=%d.pkl'
 
 # LOAD MODEL PATH
 LOAD_MODEL_PATH = '../Pretrained/Epoch=%d_Iter=%d.pkl'
-START_EPOCH     = 0
-START_ITERATION = 0
+START_EPOCH     = 28
+START_ITERATION = 96000
 START_FOLDER    = ''
 START_OBJECTID  = 0
 
@@ -89,44 +89,6 @@ def _load_dataset():
 #    UTILITIES DIRTY CODE HERE                                                                                         #
 #                                                                                                                      #
 ########################################################################################################################
-def _extract_feature():
-    global feature_factory
-    feature_factory = SSDFeVehicleModel()
-    feature_factory.load_caffe_model('../Models/SSD_300x300/Vehicle/deploy.prototxt',
-                                     '../Models/SSD_300x300/Vehicle/VGG_VOC0712_SSD_300x300_iter_284365.caffemodel')
-
-    IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-02/img1/%06d.jpg'
-    FILE_SAVE  = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-02/img1/feature/%06d.pkl'
-
-    for k in range(1, 1600):
-        print (k)
-        _imgs_path = [IMAGE_PATH % k]
-        _imgs      = read_images(_imgs_path, 1)
-
-        _feature = feature_factory.feat_func(_imgs)
-        _feature = _feature[0].reshape((1940, 128))
-
-        _file = open(FILE_SAVE % (k), 'wb')
-        pickle.dump(_feature, file, 2)
-        _file.close()
-
-def _mapping_feature(_feature, _bbox):
-    global default_bboxs
-
-    _anchor_bboxs = default_bboxs.list_default_boxes
-    _anchor_ids   = default_bboxs.list_id_feature_boxes
-
-    _ratio  = _fast_iou(_anchor_bboxs, _bbox)
-    _choice_ratio = _ratio >= 0.45
-    if numpy.sum(_choice_ratio) == 0:
-        feature = _feature[_anchor_ids[numpy.argmax(_ratio)],]
-    else:
-        _choice_feat = _feature[_anchor_ids[_choice_ratio]]
-        numpy.random.shuffle(_choice_feat)
-        feature = _choice_feat[0,]
-
-    return feature
-
 def _sort_data(_dataset, _data):
     _data = numpy.array(_data)
 
@@ -145,184 +107,141 @@ def _sort_data(_dataset, _data):
 
     return data
 
-def _fast_iou(_anchor_bboxs, _ground_truth):
+def _fast_inbox_check(_anchor_bboxs, _anchor_ids, _ground_truth):
     _num_bboxs     = _anchor_bboxs.shape[0]
     _size_per_bbox = _anchor_bboxs.shape[1]
 
     _anchor_bboxs = _anchor_bboxs.reshape((_num_bboxs, _size_per_bbox))
-    _zeros        = numpy.zeros((_num_bboxs))
-    _inter_x      = numpy.maximum(_zeros,
-                                 numpy.minimum(
-                                     _anchor_bboxs[:, 0] + _anchor_bboxs[:, 2] / 2,
-                                     _ground_truth [0] + _ground_truth [2] / 2
-                                 ) -
-                                 numpy.maximum(
-                                     _anchor_bboxs[:, 0] - _anchor_bboxs[:, 2] / 2,
-                                     _ground_truth [0] - _ground_truth [2] / 2
-                                 ))
-    _inter_y      = numpy.maximum(_zeros,
-                                 numpy.minimum(
-                                     _anchor_bboxs[:, 1] + _anchor_bboxs[:, 3] / 2,
-                                     _ground_truth [1] + _ground_truth [3] / 2
-                                 ) -
-                                 numpy.maximum(
-                                     _anchor_bboxs[:, 1] - _anchor_bboxs[:, 3] / 2,
-                                     _ground_truth [1] - _ground_truth [3] / 2
-                                 ))
-    _iter_area = _inter_x * _inter_y
+    _inter_x      = (_anchor_bboxs[:, 0] - _anchor_bboxs[:, 2] / 2 <= _ground_truth[0]) * \
+                    (_anchor_bboxs[:, 0] + _anchor_bboxs[:, 2] / 2 >= _ground_truth[0])
+    _inter_y      = (_anchor_bboxs[:, 1] - _anchor_bboxs[:, 3] / 2 <= _ground_truth[1]) * \
+                    (_anchor_bboxs[:, 1] + _anchor_bboxs[:, 3] / 2 >= _ground_truth[1])
+    _iter_check = _inter_x * _inter_y
 
-    _area1 = _anchor_bboxs[:, 2] * _anchor_bboxs[:, 3]
-    _area2 = _ground_truth [2] * _ground_truth [3]
+    return _anchor_ids[_iter_check]
 
-    ratio = _iter_area / (_area1 + _area2 - _iter_area)
-    return ratio
-
-def _same_bbox_fast(_bboxs, _bbox):
-    _list = (abs(_bboxs[:, 0] - _bbox[0]) <= 0.0001) * \
-             (abs(_bboxs[:, 1] - _bbox[1]) <= 0.0001) * \
-              (abs(_bboxs[:, 2] - _bbox[2]) <= 0.0001) * \
-               (abs(_bboxs[:, 3] - _bbox[3]) <= 0.0001)
-
-    if numpy.sum(_list) == 1:
-        return numpy.argmax(_list)
+def _same_bbox_fast(_bbox1, _bbox2):
+    if  (abs(_bbox1[0] - _bbox2[0]) <= 0.0001) * \
+        (abs(_bbox1[1] - _bbox2[1]) <= 0.0001) * \
+        (abs(_bbox1[2] - _bbox2[2]) <= 0.0001) * \
+        (abs(_bbox1[3] - _bbox2[3]) <= 0.0001):
+        return True
     else:
-        return -1
+        return False
 
-
-# def Draw(_ims_path_sequence, _bboxs, _all_bboxs):
-#     fig, ax = plt.subplots(1)
-#     ab = None
-#
-#     for _idx, _im_path in enumerate(_ims_path_sequence):
-#         _raw_im = cv2.imread(_im_path)
-#
-#         if ab == None:
-#             ab = ax.imshow(_raw_im)
-#         else:
-#             ab.set_data(_raw_im)
-#
-#         _bbox = _bboxs[_idx]
-#         cx = _bbox[0]
-#         cy = _bbox[1]
-#         w  = _bbox[2]
-#         h  = _bbox[3]
-#
-#         H, W, _ = _raw_im.shape
-#         rect0 = patches.Rectangle(((cx - w / 2) * W, (cy - h / 2) * H), w * W, h * H, linewidth=1, edgecolor='r', facecolor='none')
-#         # Add the patch to the Axes
-#         ax.add_patch(rect0)
-#         plt.show()
-#         plt.axis('off')
-#         plt.pause(5)
-#         rect0.remove()
-#
-#         _all_bbox = _all_bboxs[_idx]
-#         rect = []
-#         for _bbox in _all_bbox:
-#             cx = _bbox[0]
-#             cy = _bbox[1]
-#             w = _bbox[2]
-#             h = _bbox[3]
-#
-#             H, W, _ = _raw_im.shape
-#             rect0 = patches.Rectangle(((cx - w / 2) * W, (cy - h / 2) * H), w * W, h * H, linewidth=1, edgecolor='r',
-#                                       facecolor='none')
-#             # Add the patch to the Axes
-#             ax.add_patch(rect0)
-#             rect.append(rect0)
-#         plt.show()
-#         plt.axis('off')
-#         plt.pause(5)
-#
-#         for _rec in rect:
-#             _rec.remove()
-#
-# def Draw1(_ims_path_sequence, _bboxs, _ratio, _ids):
-#     fig, ax = plt.subplots(1)
-#     ab = None
-#
-#     for _idx, _im_path in enumerate(_ims_path_sequence):
-#         _raw_im = cv2.imread(_im_path)
-#
-#         if ab == None:
-#             ab = ax.imshow(_raw_im)
-#         else:
-#             ab.set_data(_raw_im)
-#
-#         count = 0
-#         for _bbox, _rati in zip(_bboxs, _ratio):
-#             cx = _bbox[0]
-#             cy = _bbox[1]
-#             w  = _bbox[2]
-#             h  = _bbox[3]
-#
-#             H, W, _ = _raw_im.shape
-#             rect0 = patches.Rectangle(((cx - w / 2) * W, (cy - h / 2) * H), w * W, h * H, linewidth=1, edgecolor='r', facecolor='none')
-#             # Add the patch to the Axes
-#             ax.add_patch(rect0)
-#             print (_rati, count, _ids[count])
-#             plt.show()
-#             plt.axis('off')
-#             plt.pause(0.01)
-#             rect0.remove()
-#             count += 1
-
-def _one_frame(_feature, _frame_bboxs):
-    _frame_feat_bboxs = []
-    for _bbox_id, _bbox in enumerate(_frame_bboxs):
-        _frame_feat_bboxs.append(_mapping_feature(_feature, _bbox))
-    return _frame_feat_bboxs
+def _create_fe_pos(_index):
+    indices = numpy.zeros((1940,), dtype = bool)
+    indices[_index] = True
+    return indices
 
 def _get_data_sequence(_dataset,
                        _folder_name,
                        _object_id):
+    global default_bboxs
+    _anchor_bboxs = default_bboxs.list_default_boxes
+    _anchor_ids   = default_bboxs.list_id_feature_boxes
+
     _dataset.data_opts['data_folder_name']   = _folder_name
     _dataset.data_opts['data_object_id']     = _object_id
     _features, _bboxs, _all_bboxs, _ims_path = _dataset.get_feature_by(_occluder_thres = 0.5)
 
-    _feat_bboxs = []
-    for _feature, _bbox in zip(_features, _bboxs):
-        _feat_bboxs.append(_mapping_feature(_feature, _bbox))
-    _feat_bboxs = numpy.asarray(_feat_bboxs, dtype='float32')
-    _encode_x_sequence = numpy.concatenate((_feat_bboxs, _bboxs), axis=1)
+    _encode_x_pos_sequence = []
+    _decode_x_neg_sequence = []
 
-    _feat_all_bboxs = []
-    for _feature, _frame_bboxs in zip(_features, _all_bboxs):
-        _frame_feat_bboxs = []
-        for _bbox_id, _bbox in enumerate(_frame_bboxs):
-            _frame_feat_bboxs.append(_mapping_feature(_feature, _bbox))
-        _feat_all_bboxs.append(_frame_feat_bboxs)
+    for _feature, _bbox, _all_bbox in zip(_features, _bboxs, _all_bboxs):
+        _index_pos    = _fast_inbox_check(_anchor_bboxs, _anchor_ids, _bbox)
+        _fe_index_pos = _create_fe_pos(_index_pos)
+        _indices_neg = []
 
-    _decode_x_sequence = []
-    _decode_y_sequence = []
-    for _id, (_frame_feat_bboxs, _frame_bboxs) in enumerate(zip(_feat_all_bboxs, _all_bboxs)):
-        _frame_feat_bboxs = numpy.asarray(_frame_feat_bboxs, dtype = 'float32')
-        _frame_bboxs      = numpy.asarray(_frame_bboxs, dtype = 'float32')
-        _num_bboxs        = _frame_bboxs.shape[0]
-        _decode_x_frame   = numpy.concatenate((_frame_feat_bboxs, _frame_bboxs), axis = 1)
-        _decode_x_frame   = numpy.pad(_decode_x_frame, ((0, NUM_OBJECT - _num_bboxs), (0, 0)), mode ='constant', constant_values = 0)
+        _temp_bbox = []
+        for _one_bbox in _all_bbox:
+            if not _same_bbox_fast(_bbox, _one_bbox):
+                _index_neg = _fast_inbox_check(_anchor_bboxs, _anchor_ids, _one_bbox)
+                _fe_index_neg = _create_fe_pos(_index_neg)
+                _indices_neg.append(_fe_index_neg)
+                _temp_bbox.append(_one_bbox)
 
-        _decode_y_frame   = numpy.zeros((NUM_OBJECT + 1, ), dtype = 'int32')
+        _encode_x_pos_sequence.append([_feature, _bbox, _fe_index_pos])
+        _decode_x_neg_sequence.append([_feature, _temp_bbox, _indices_neg])
 
-        _selected_bbox_id = _same_bbox_fast(_frame_bboxs, _bboxs[_id])
-        if _selected_bbox_id == -1:
-            _decode_y_frame[-1] = 1
-        else:
-            _decode_y_frame[_selected_bbox_id] = 1
+    return _encode_x_pos_sequence, _decode_x_neg_sequence
 
-        _ids = range(len(_decode_x_frame))
-        numpy.random.shuffle(_ids)
-        _decode_x_frame                = _decode_x_frame[_ids,]
-        _decode_y_frame[:NUM_OBJECT, ] = _decode_y_frame[_ids,]
+def _extract_fe(_feature, _bbox, _index_pos):
+    idx1 = (_index_pos[0: 1444] > 0).nonzero()[0]
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx1.shape[0])
+    idx1 = idx1[rand]
 
-        _decode_x_sequence.append(_decode_x_frame)
-        _decode_y_sequence.append(_decode_y_frame)
+    idx2 = (_index_pos[1444: 1805] > 0).nonzero()[0] + 1444
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx2.shape[0])
+    idx2 = idx2[rand]
 
-    _encode_x_sequence = numpy.asarray(_encode_x_sequence, dtype = 'float32')
-    _decode_x_sequence = numpy.asarray(_decode_x_sequence, dtype = 'float32')
-    _decode_y_sequence = numpy.asarray(_decode_y_sequence, dtype = 'float32')
+    idx3 = (_index_pos[1805: 1905] > 0).nonzero()[0] + 1805
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx3.shape[0])
+    idx3 = idx3[rand]
 
-    return _encode_x_sequence, _decode_x_sequence, _decode_y_sequence
+    idx4 = (_index_pos[1905: 1930] > 0).nonzero()[0] + 1905
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx4.shape[0])
+    idx4 = idx4[rand]
+
+    idx5 = (_index_pos[1930: 1939] > 0).nonzero()[0] + 1930
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx5.shape[0])
+    idx5 = idx5[rand]
+
+    idx6 = (_index_pos[1939: 1940] > 0).nonzero()[0] + 1939
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx6.shape[0])
+    idx6 = idx6[rand]
+
+    _fe = _feature[[idx1, idx2, idx3, idx4, idx5, idx6],]
+    _fe = _fe.reshape((numpy.prod(_fe.shape),))
+    feature = numpy.concatenate((_fe, _bbox), axis = 0)
+
+    return feature
+
+def _get_data(_encode_x_pos_sequence_batch,
+              _decode_x_neg_sequence_batch,
+              _mini_sequence_id,
+              _num_neg):
+    _encode_x_pos_batch_sequence = []
+    _decode_x_batch_sequence     = []
+    _decode_y_batch_sequence     = []
+    for _trun_id in range(NUM_TRUNCATE):
+        _encode_x_pos_one_step = []
+        _decode_x_one_step     = []
+        _decode_y_one_step     = []
+
+        for _encode_x_pos_sequence, _decode_x_neg_sequence in zip(_encode_x_pos_sequence_batch, _decode_x_neg_sequence_batch):
+            _feature     = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][0]
+            _bbox        = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][1]
+            _index_pos   = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][2]
+            _temp_bbox   = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][1]
+            _indices_neg = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][2]
+
+            _fe_pos      = _extract_fe(_feature, _bbox, _index_pos)
+
+            _randomed_ids = range(len(_temp_bbox))
+            shuffle(_randomed_ids)
+            _randomed_ids = _randomed_ids[: _num_neg]
+
+            _fe_negs    = []
+            _fe_negs_la = []
+            for _randomed_id in _randomed_ids:
+                _fe_neg      = _extract_fe(_feature, _temp_bbox[_randomed_id], _indices_neg[_randomed_id])
+                _fe_negs.append(_fe_neg)
+                _fe_negs_la.append([0])
+
+            _encode_x_pos_one_step.append(_fe_pos)
+            _decode_x_one_step.append([_fe_pos] + _fe_negs)
+            _decode_y_one_step.append([[1]] + _fe_negs_la)
+
+        _encode_x_pos_batch_sequence.append(_encode_x_pos_one_step)
+        _decode_x_batch_sequence.append(_decode_x_one_step)
+        _decode_y_batch_sequence.append(_decode_y_one_step)
+
+    _encode_x_pos_batch_sequence = numpy.asarray(_encode_x_pos_batch_sequence, dtype = 'float32')
+    _decode_x_batch_sequence     = numpy.asarray(_decode_x_batch_sequence, dtype = 'float32')
+    _decode_y_batch_sequence     = numpy.asarray(_decode_y_batch_sequence, dtype = 'float32')
+
+    return _encode_x_pos_batch_sequence, _decode_x_batch_sequence, _decode_y_batch_sequence
 
 def _preprocess(_encode_x_batch,
                 _decode_x_batch,
@@ -379,9 +298,7 @@ def _create_feature_factory():
 def _create_DAFeat_model():
     global DAFeat_model
     DAFeat_model = DAFeatModel(_dafeat_en_input_size  = DA_EN_INPUT_SIZE,
-                               _dafeat_en_hidden_size = DA_EN_HIDDEN_SIZE,
-                               _dafeat_de_input_size  = DA_DE_INPUT_SIZE,
-                               _dafeat_de_output_size = DA_DE_OUTPUT_SIZE)
+                               _dafeat_en_hidden_size = DA_EN_HIDDEN_SIZE)
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -406,81 +323,58 @@ def _valid_model(_dataset, _valid_data, _pre_extract):
     shuffle(_all_batch_valid_data_ids)
     _num_batch_valided_data   = 0
     for _batch_valid_data_idx in _all_batch_valid_data_ids:
+        # Get batch of object id
+        _train_samples = _valid_data[_batch_valid_data_idx      * BATCH_SIZE:
+                                    (_batch_valid_data_idx + 1) * BATCH_SIZE]
+
         if _batch_valid_data_idx in _pre_extract:
-            _encode_x_batch, \
-            _decode_x_batch, \
-            _decode_y_batch, \
+            _encode_x_pos_sequence_batch, \
+            _decode_x_neg_sequence_batch, \
             _max_num_timestep = _pre_extract[_batch_valid_data_idx]
-
-
-            _decode_x_batch = _decode_x_batch.reshape((_decode_x_batch.shape[0], BATCH_SIZE, NUM_OBJECT, 128 + 4))
-            _decode_y_batch = _decode_y_batch.reshape((_decode_y_batch.shape[0], BATCH_SIZE, NUM_OBJECT + 1))
-            for _trun_id in range(_decode_x_batch.shape[0]):
-            	for _batch_id in range(_decode_x_batch.shape[1]):
-            		_ids = range(NUM_OBJECT)
-            		shuffle(_ids)
-            		_decode_x_batch[_trun_id, _batch_id, :, :]         = _decode_x_batch[_trun_id, _batch_id, _ids, ]
-            		_decode_y_batch[_trun_id, _batch_id, : NUM_OBJECT] = _decode_y_batch[_trun_id, _batch_id, _ids]
-            _decode_x_batch = _decode_x_batch.reshape((_decode_x_batch.shape[0], BATCH_SIZE, NUM_OBJECT * (128 + 4)))
-            _decode_y_batch = _decode_y_batch.reshape((_decode_y_batch.shape[0], BATCH_SIZE, NUM_OBJECT + 1))
         else:
-            # Get batch of object id
-            _valid_samples = _valid_data[_batch_valid_data_idx      * BATCH_SIZE:
-                                        (_batch_valid_data_idx + 1) * BATCH_SIZE]
-
-            _encode_x_batch = []
-            _decode_x_batch = []
-            _decode_y_batch = []
-
-            _max_num_timestep = 0
-            for _folder_name, _object_id in _valid_samples:
+            _encode_x_pos_sequence_batch = []
+            _decode_x_neg_sequence_batch = []
+            _max_num_timestep = 100000
+            for _folder_name, _object_id in _train_samples:
                 _object_id = int(_object_id)
                 # Get information of batch of object ids
-                _encode_x_sequence, \
-                _decode_x_sequence, \
-                _decode_y_sequence = _get_data_sequence(_dataset     = dataset,
-                                                        _folder_name = _folder_name,
-                                                        _object_id   = _object_id)
-                _encode_x_batch.append(_encode_x_sequence)
-                _decode_x_batch.append(_decode_x_sequence)
-                _decode_y_batch.append(_decode_y_sequence)
-                _max_num_timestep = max(_max_num_timestep, len(_encode_x_sequence))
 
-            _encode_x_batch, \
-            _decode_x_batch, \
-            _decode_y_batch = _preprocess(_encode_x_batch,
-                                          _decode_x_batch,
-                                          _decode_y_batch,
-                                          _max_num_timestep)
+                _encode_x_pos_sequence, \
+                _decode_x_neg_sequence = _get_data_sequence(_dataset     = _dataset,
+                                                            _folder_name = _folder_name,
+                                                            _object_id   = _object_id)
+                _encode_x_pos_sequence_batch.append(_encode_x_pos_sequence)
+                _decode_x_neg_sequence_batch.append(_decode_x_neg_sequence)
 
-            _pre_extract[_batch_valid_data_idx] = [_encode_x_batch, _decode_x_batch, _decode_y_batch, _max_num_timestep]
+                _max_num_timestep = min(_max_num_timestep, len(_encode_x_pos_sequence))
+            _pre_extract[_batch_valid_data_idx] = [_encode_x_pos_sequence_batch,
+                                                   _decode_x_neg_sequence_batch,
+                                                   _max_num_timestep]
 
         _num_batch_valided_data += 1
         _encode_h_sequence = _start_h_sequence
-        _decode_c_sequence = _start_c_sequence
         _num_mini_sequence = (_max_num_timestep - 1) // NUM_TRUNCATE
         for _mini_sequence_id in range(_num_mini_sequence):
             _valid_start_time = timeit.default_timer()
-            _encode_x_sequence = _encode_x_batch[_mini_sequence_id * NUM_TRUNCATE:
-                                                (_mini_sequence_id + 1) * NUM_TRUNCATE, ]
-            _decode_x_sequence = _decode_x_batch[_mini_sequence_id * NUM_TRUNCATE + 1:
-                                                (_mini_sequence_id + 1) * NUM_TRUNCATE + 1, ]
-            _decode_y_sequence = _decode_y_batch[_mini_sequence_id * NUM_TRUNCATE + 1:
-                                                (_mini_sequence_id + 1) * NUM_TRUNCATE + 1, ]
+
+            _encode_x_pos_sequence, \
+            _decode_x_sequence, \
+            _decode_y_sequence = _get_data(_encode_x_pos_sequence_batch,
+                                           _decode_x_neg_sequence_batch,
+                                           _mini_sequence_id,
+                                           10)
 
             # Update
             _iter += 1
-            result = DAFeat_model.valid_func(_encode_x_sequence,
+            result = DAFeat_model.valid_func(_encode_x_pos_sequence,
                                              _encode_h_sequence,
                                              _decode_x_sequence,
-                                             _decode_y_sequence,
-                                             _decode_c_sequence)
+                                             _decode_y_sequence)
 
             # Temporary save info
             _costs.append(result[0])
             _precs.append(result[1])
             _encode_h_sequence = result[2]
-            _decode_c_sequence = result[3]
 
             _valid_end_time = timeit.default_timer()
 
@@ -552,7 +446,7 @@ def _train_model():
     print ('|-- Load state !')
     if check_file_exist(STATE_PATH, _throw_error = False):
         _file = open(BEST_COST_PATH)
-        DAFeat_model.load_model(_file)
+        DAFeat_model.load_state(_file)
         _file.close()
     print ('|-- Load state ! Completed')
 
@@ -578,88 +472,60 @@ def _train_model():
         shuffle(_all_batch_train_data_ids)
         _num_batch_trained_data   = 0
         for _batch_train_data_idx in _all_batch_train_data_ids:
-
-            _cost_valid, _prec_valid, _valid_pre_extract = _valid_model(_dataset=dataset,
-                                                                        _valid_data=valid_data,
-                                                                        _pre_extract=_valid_pre_extract)
-
+            # Get batch of object id
+            _train_samples = train_data[_batch_train_data_idx      * BATCH_SIZE:
+                                       (_batch_train_data_idx + 1) * BATCH_SIZE]
 
             if _batch_train_data_idx in _pre_extract:
-                _encode_x_batch, \
-                _decode_x_batch, \
-                _decode_y_batch, \
+                _encode_x_pos_sequence_batch, \
+                _decode_x_neg_sequence_batch, \
                 _max_num_timestep = _pre_extract[_batch_train_data_idx]
-
-                _decode_x_batch = _decode_x_batch.reshape((_decode_x_batch.shape[0], BATCH_SIZE, NUM_OBJECT, 128 + 4))
-                _decode_y_batch = _decode_y_batch.reshape((_decode_y_batch.shape[0], BATCH_SIZE, NUM_OBJECT + 1))
-                for _trun_id in range(_decode_x_batch.shape[0]):
-                	for _batch_id in range(_decode_x_batch.shape[1]):
-                		_ids = range(NUM_OBJECT)
-                		shuffle(_ids)
-                		_decode_x_batch[_trun_id, _batch_id, :, :]         = _decode_x_batch[_trun_id, _batch_id, _ids, ]
-                		_decode_y_batch[_trun_id, _batch_id, : NUM_OBJECT] = _decode_y_batch[_trun_id, _batch_id, _ids]
-                _decode_x_batch = _decode_x_batch.reshape((_decode_x_batch.shape[0], BATCH_SIZE, NUM_OBJECT * (128 + 4)))
-                _decode_y_batch = _decode_y_batch.reshape((_decode_y_batch.shape[0], BATCH_SIZE, NUM_OBJECT + 1))
             else:
-                # Get batch of object id
-                _train_samples = train_data[_batch_train_data_idx      * BATCH_SIZE :
-                                           (_batch_train_data_idx + 1) * BATCH_SIZE]
-
-                _encode_x_batch = []
-                _decode_x_batch = []
-                _decode_y_batch = []
-
-                _max_num_timestep = 0
+                _encode_x_pos_sequence_batch = []
+                _decode_x_neg_sequence_batch = []
+                _max_num_timestep   = 100000
                 for _folder_name, _object_id in _train_samples:
                     _object_id = int(_object_id)
                     # Get information of batch of object ids
-                    _encode_x_sequence, \
-                    _decode_x_sequence, \
-                    _decode_y_sequence = _get_data_sequence(_dataset     = dataset,
-                                                            _folder_name = _folder_name,
-                                                            _object_id   = _object_id)
-                    _encode_x_batch.append(_encode_x_sequence)
-                    _decode_x_batch.append(_decode_x_sequence)
-                    _decode_y_batch.append(_decode_y_sequence)
-                    _max_num_timestep = max(_max_num_timestep, len(_encode_x_sequence))
 
-                _encode_x_batch, \
-                _decode_x_batch, \
-                _decode_y_batch = _preprocess(_encode_x_batch,
-                                              _decode_x_batch,
-                                              _decode_y_batch,
-                                              _max_num_timestep)
+                    _encode_x_pos_sequence, \
+                    _decode_x_neg_sequence = _get_data_sequence(_dataset     = dataset,
+                                                                _folder_name = _folder_name,
+                                                                _object_id   = _object_id)
+                    _encode_x_pos_sequence_batch.append(_encode_x_pos_sequence)
+                    _decode_x_neg_sequence_batch.append(_decode_x_neg_sequence)
 
-                _pre_extract[_batch_train_data_idx] = [_encode_x_batch, _decode_x_batch, _decode_y_batch, _max_num_timestep]
+                    _max_num_timestep = min(_max_num_timestep, len(_encode_x_pos_sequence))
+                _pre_extract[_batch_train_data_idx] = [_encode_x_pos_sequence_batch,
+                                                       _decode_x_neg_sequence_batch,
+                                                       _max_num_timestep]
 
             _num_batch_trained_data += 1
             _encode_h_sequence = _start_h_sequence
-            _decode_c_sequence = _start_c_sequence
             _num_mini_sequence = (_max_num_timestep - 1) // NUM_TRUNCATE
             for _mini_sequence_id in range(_num_mini_sequence):
                 _train_start_time = timeit.default_timer()
-                _encode_x_sequence = _encode_x_batch[ _mini_sequence_id      * NUM_TRUNCATE :
-                                                     (_mini_sequence_id + 1) * NUM_TRUNCATE, ]
-                _decode_x_sequence = _decode_x_batch[ _mini_sequence_id      * NUM_TRUNCATE + 1 :
-                                                     (_mini_sequence_id + 1) * NUM_TRUNCATE + 1, ]
-                _decode_y_sequence = _decode_y_batch[ _mini_sequence_id      * NUM_TRUNCATE + 1 :
-                                                     (_mini_sequence_id + 1) * NUM_TRUNCATE + 1, ]
+
+                _encode_x_pos_sequence, \
+                _decode_x_sequence, \
+                _decode_y_sequence = _get_data(_encode_x_pos_sequence_batch,
+                                               _decode_x_neg_sequence_batch,
+                                               _mini_sequence_id,
+                                               1)
 
                 # Update
                 _iter += 1
                 result = DAFeat_model.train_func(_learning_rate,
-                                                 _encode_x_sequence,
+                                                 _encode_x_pos_sequence,
                                                  _encode_h_sequence,
                                                  _decode_x_sequence,
-                                                 _decode_y_sequence,
-                                                 _decode_c_sequence)
+                                                 _decode_y_sequence)
 
                 # Temporary save info
                 _costs.append(result[0])
-                _mags.append(result[3])
+                _mags.append(result[2])
 
                 _encode_h_sequence = result[1]
-                _decode_c_sequence = result[2]
 
                 _train_end_time = timeit.default_timer()
                 # Print information

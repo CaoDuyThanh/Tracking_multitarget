@@ -3,9 +3,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from Utils.MOTDataHelper import *
 from Models.SSD_300x300.SSDModel import *
-from Models.SSD_300x300.SSDVehicleModel import *
 from Models.SSD_300x300.SSDFeVehicleModel import *
-from Models.LSTM.DAModel import *
+from Models.LSTM.DAFeatModelTruncated import *
 from Utils.DefaultBox import *
 from Utils.PlotManager import *
 
@@ -16,14 +15,11 @@ from Utils.PlotManager import *
 ########################################################################################################################
 # TRAINING HYPER PARAMETER
 TEST_STATE        = 0
-BATCH_SIZE        = 1
-DISPLAY_FREQUENCY = 50
+NUM_OBJECT        = 70
 
 # LSTM NETWORK CONFIG
-NUM_TRUNCATE      = (1, 1)
-NUM_HIDDEN        = 2048
-INPUTS_SIZE       = [256 + 4 + 256 + 4 + 256 + 4 + 256 + 4 + 256 + 4 + 256 + 4]
-OUTPUTS_SIZE      = [1, 4]
+DA_EN_INPUT_SIZE  = 128 * 6 + 4
+DA_EN_HIDDEN_SIZE = 256
 
 # DATASET CONFIGURATION
 DATASET_PATH    = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/MOT16/'
@@ -33,21 +29,15 @@ DATASET_SOURCE  = 'MOT'
 VIDEO_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/Traffic Video/Human2.avi'
 
 # STATE PATH
-BEST_PATH  = '../Models/LSTM/DA_Best.pkl'
+BEST_PREC_PATH  = '../Pretrained/DAFE_Prec_Best.pkl'
 
 # TYPE
 TEST_VEHICLE = True
 
-# LSTM NETWORK CONFIG
-NUM_OBJECT     = 70
-DA_INPUT_SIZE  = 70
-DA_HIDDEN_SIZE = 512
-DA_OUTPUT_SIZE = 70
-
 # GLOBAL VARIABLES
 default_bboxs     = None
 SSD_model         = None
-DA_model          = None
+DAFeat_model      = None
 plot_manager      = None
 
 ########################################################################################################################
@@ -94,7 +84,7 @@ def _create_SSD_model():
 
     print ('|-- Load best SSD model !')
     if TEST_VEHICLE:
-        SSD_model = SSDVehicleModel()
+        SSD_model = SSDFeVehicleModel()
         SSD_model.load_caffe_model('../Models/SSD_300x300/Vehicle/deploy.prototxt',
                                    '../Models/SSD_300x300/Vehicle/VGG_VOC0712_SSD_300x300_iter_284365.caffemodel')
     else:
@@ -110,16 +100,15 @@ def _create_SSD_model():
 #                                                                                                                      #
 ########################################################################################################################
 def _create_DA_model():
-    global DA_model
-    DA_model = DAModel(da_input_size  = DA_INPUT_SIZE,
-                       da_hidden_size = DA_HIDDEN_SIZE,
-                       da_output_size = DA_OUTPUT_SIZE + 1)
+    global DAFeat_model
+    DAFeat_model = DAFeatModel(_dafeat_en_input_size  = DA_EN_INPUT_SIZE,
+                               _dafeat_en_hidden_size = DA_EN_HIDDEN_SIZE)
+
     # Load old model if exist
-    if check_file_exist(BEST_PATH,
-                        _throw_error=False) == True:
+    if check_file_exist(BEST_PREC_PATH, _throw_error = False):
         print ('|-- Load best DA model !')
-        _file = open(BEST_PATH)
-        DA_model.load_model(_file)
+        _file = open(BEST_PREC_PATH)
+        DAFeat_model.load_model(_file)
         _file.close()
         print ('|-- Load best DA model ! Completed !')
 
@@ -128,61 +117,79 @@ def _create_DA_model():
 #    UTILITIES (MANY DIRTY CODES)                                                                                      #
 #                                                                                                                      #
 ########################################################################################################################
-def _Euclidean_distance(_bbox_timestamp, _bbox_next_timestamp):
-    delta = _bbox_next_timestamp - _bbox_timestamp
-    return numpy.sqrt((delta * delta).sum())
+def _fast_inbox_check(_anchor_bboxs, _anchor_ids, _ground_truth):
+    _num_bboxs     = _anchor_bboxs.shape[0]
+    _size_per_bbox = _anchor_bboxs.shape[1]
 
-def _pairwise_distance(_list_bboxs1,
-                       _list_bboxs2):
-    distance = numpy.zeros((_list_bboxs1.shape[0], _list_bboxs2.shape[0]), dtype = 'float32')
-    for _bbox1_id in range(_list_bboxs1.shape[0]):
-        for _bbox2_id in range(_list_bboxs2.shape[0]):
-            _bbox1 = _list_bboxs1[_bbox1_id]
-            _bbox2 = _list_bboxs2[_bbox2_id]
-            distance[_bbox1_id, _bbox2_id] = _Euclidean_distance(_bbox1, _bbox2)
-    return distance
+    _anchor_bboxs = _anchor_bboxs.reshape((_num_bboxs, _size_per_bbox))
+    _inter_x      = (_anchor_bboxs[:, 0] - _anchor_bboxs[:, 2] / 2 <= _ground_truth[0]) * \
+                    (_anchor_bboxs[:, 0] + _anchor_bboxs[:, 2] / 2 >= _ground_truth[0])
+    _inter_y      = (_anchor_bboxs[:, 1] - _anchor_bboxs[:, 3] / 2 <= _ground_truth[1]) * \
+                    (_anchor_bboxs[:, 1] + _anchor_bboxs[:, 3] / 2 >= _ground_truth[1])
+    _iter_check = _inter_x * _inter_y
 
-def _prepare_bbou(_bbou):
-    _bbou = numpy.asarray(_bbou, dtype = 'float32')
-    bbou  = numpy.pad(_bbou, ((0, 0), (0, NUM_OBJECT - _bbou.shape[1]), (0, 0)) , mode = 'constant', constant_values = 0)
-    return bbou
+    return _anchor_ids[_iter_check]
 
-def _create_id(_selected_id):
-    for _new_id in range(1, NUM_OBJECT + 1):
-        if _selected_id[_new_id] == 0:
-            return _new_id
+def _create_fe_pos(_index):
+    indices = numpy.zeros((1940,), dtype = bool)
+    indices[_index] = True
+    return indices
 
-def _match_bboxs(_pre_bboxs, _id_bboxs, _next_bboxs, _objects_match):
-    _cur_bboxs    = numpy.zeros((NUM_OBJECT, 4))
-    _cur_id_bboxs = numpy.zeros((NUM_OBJECT,))
-    _check       = numpy.ones((NUM_OBJECT,))
-    _count       = 0
-    _selected_id = numpy.zeros((NUM_OBJECT + 1,))
+def create_indices_bbox(_all_bbox):
+    global default_bboxs
+    _anchor_bboxs = default_bboxs.list_default_boxes
+    _anchor_ids = default_bboxs.list_id_feature_boxes
 
-    for _object_id in range(NUM_OBJECT):
-        _object_id_match = _objects_match[_object_id]
-        if _object_id_match == NUM_OBJECT:
-            continue
+    indices_bbox = []
+    for _one_bbox in _all_bbox:
+        _index    = _fast_inbox_check(_anchor_bboxs, _anchor_ids, _one_bbox)
+        _fe_index = _create_fe_pos(_index)
+        indices_bbox.append(_fe_index)
 
-        if _id_bboxs[_object_id]:
-            if _check[_object_id_match]:
-                _check[_object_id_match] = 0
-                _cur_bboxs[_count]       = _next_bboxs[_object_id_match,]
-                _cur_id_bboxs[_count]    = _id_bboxs[_object_id]
-                _count += 1
-                _selected_id[int(_id_bboxs[_object_id])] = 1
+    return indices_bbox
 
-    for _object_id in range(NUM_OBJECT):
-        if _check[_object_id] and \
-            _next_bboxs[_object_id][0] > 0.0001 and \
-            _next_bboxs[_object_id][1] > 0.0001:
-            _new_id               = _create_id(_selected_id)
-            _selected_id[_new_id] = 1
-            _cur_bboxs[_count]    = _next_bboxs[_object_id,]
-            _cur_id_bboxs[_count] = _new_id
-            _count += 1
+def _extract_fe(_feature, _bbox, _index_pos):
+    idx1 = (_index_pos[0: 1444] > 0).nonzero()[0]
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx1.shape[0])
+    idx1 = idx1[rand]
 
-    return _cur_bboxs, _cur_id_bboxs
+    idx2 = (_index_pos[1444: 1805] > 0).nonzero()[0] + 1444
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx2.shape[0])
+    idx2 = idx2[rand]
+
+    idx3 = (_index_pos[1805: 1905] > 0).nonzero()[0] + 1805
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx3.shape[0])
+    idx3 = idx3[rand]
+
+    idx4 = (_index_pos[1905: 1930] > 0).nonzero()[0] + 1905
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx4.shape[0])
+    idx4 = idx4[rand]
+
+    idx5 = (_index_pos[1930: 1939] > 0).nonzero()[0] + 1930
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx5.shape[0])
+    idx5 = idx5[rand]
+
+    idx6 = (_index_pos[1939: 1940] > 0).nonzero()[0] + 1939
+    rand = numpy.random.randint(size=(1,), low = 0, high = idx6.shape[0])
+    idx6 = idx6[rand]
+
+    _fe = _feature[[idx1, idx2, idx3, idx4, idx5, idx6],]
+    _fe = _fe.reshape((numpy.prod(_fe.shape),))
+    feature = numpy.concatenate((_fe, _bbox), axis = 0)
+
+    return feature
+
+def create_feature(_feature, _all_bbox, _indices_bbox):
+    decode_x_batch_sequence = []
+    decode_x_sequence       = []
+    _fe_negs = []
+    for _one_bbox, _index_bbox in zip(_all_bbox, _indices_bbox):
+        _fe_neg = _extract_fe(_feature, _one_bbox, _index_bbox)
+        _fe_negs.append(_fe_neg)
+    decode_x_sequence.append(_fe_negs)
+    decode_x_batch_sequence.append(decode_x_sequence)
+    decode_x_batch_sequence = numpy.asarray(decode_x_batch_sequence, dtype = 'float32')
+    return decode_x_batch_sequence
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -202,7 +209,7 @@ def _create_plot_manager():
 def _test_model():
     global default_bboxs, \
            SSD_model, \
-           DA_model, \
+           DAFeat_model, \
            plot_manager
     if TEST_VEHICLE:
         IMAGE_PATH = '/media/badapple/Data/PROJECTS/Machine Learning/Dataset/HCMT16/train/HCMT16-02/img1/%06d.jpg'
@@ -214,23 +221,34 @@ def _test_model():
     _id_bboxs  = numpy.zeros((NUM_OBJECT, ))
 
     for k in range(1, 500):
-        _imgs_path = [IMAGE_PATH % k]
-        _raw_im    = cv2.imread(_imgs_path[0])
-        _imgs      = read_images(_imgs_path, 1)
-        _output    = SSD_model.test_network(_imgs)
+        _imgs_path        = [IMAGE_PATH % k]
+        _raw_im           = cv2.imread(_imgs_path[0])
+        _imgs             = read_images(_imgs_path, 1)
+        _feat, _all_bboxs = SSD_model.test_network(_imgs)
 
-        _best_bbox = default_bboxs.bbox(_output[0], _output[1])
-        _bbou      = default_bboxs.bbou(_best_bbox)
-        _bbou      = _prepare_bbou(_bbou)
+        _best_bbox    = default_bboxs.bbox(_all_bboxs[0], _all_bboxs[1])
+        _bbou         = default_bboxs.bbou(_best_bbox)[0]
+        _indices_bbox = create_indices_bbox(_bbou)
 
-        _eucl_distance = _pairwise_distance(_pre_bboxs, _bbou[0])
-        _eucl_distance = _eucl_distance.reshape((1, NUM_OBJECT, NUM_OBJECT))
-        _result        = DA_model.pred_func(_eucl_distance)
-        _match         = _result[0]
+        _decode_x_batch_sequence = create_feature(_feat, _bbou, _indices_bbox)
 
-        _cur_bboxs,\
-        _id_bboxs    = _match_bboxs(_pre_bboxs, _id_bboxs, _bbou[0], _match[0])
-        _pre_bboxs = _cur_bboxs
+        if k == 1:
+            _id_bboxs  = range(len(_bbou))
+            _cur_bboxs = _bbou
+        else:
+            if k == 2:
+                _encode_h_sequence = numpy.zeros((_decode_x_batch_sequence.shape[1], DA_EN_HIDDEN_SIZE), dtype='float32')
+
+            _result = DAFeat_model.pred_func(_encode_x_pos_batch_sequence,
+                                             _encode_h_sequence,
+                                             _decode_x_batch_sequence)
+            _match = _result[0]
+
+            _cur_bboxs,\
+            _id_bboxs  = _match_bboxs(_pre_bboxs, _id_bboxs, _bbou, _match)
+            _pre_bboxs = _cur_bboxs
+
+        _encode_x_pos_batch_sequence = _decode_x_batch_sequence
 
         plot_manager.update_main_plot(_raw_im)
         plot_manager.draw_bboxs(_id_bboxs, _cur_bboxs)

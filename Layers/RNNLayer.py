@@ -30,8 +30,7 @@ class RNNLayer(BasicLayer):
 
     def step(self,
              _input_x,
-             _hkm1,
-             _output_y):
+             _hkm1):
         # Get all weight from param
         _Wx_in, _Wh_in, _bi_in, \
         _Wh_ou, _bi_ou = self.params
@@ -43,3 +42,20 @@ class RNNLayer(BasicLayer):
         output_y = T.dot(H, _Wh_ou) + _bi_ou
 
         return H, output_y
+
+    def step1(self,
+             _input_x,
+             _hkm1):
+        _hkm1 = _hkm1.reshape((_hkm1.shape[0], 1, _hkm1.shape[1]))
+
+        # Get all weight from param
+        _Wx_in, _Wh_in, _bi_in, \
+        _Wh_ou, _bi_ou = self.params
+
+        # Update state
+        H = T.tanh(T.dot(_input_x, _Wx_in) + T.dot(_hkm1, _Wh_in) + _bi_in)
+
+        # Calculate output
+        output_y = T.dot(H, _Wh_ou) + _bi_ou
+
+        return output_y

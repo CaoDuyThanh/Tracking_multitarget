@@ -513,4 +513,4 @@ class SSDFeVehicleModel():
 
     def test_network(self,
                      _im):
-        return self.pred_func(_im)
+        return self.feat_func(_im)[0][0], self.pred_func(_im)

@@ -163,7 +163,6 @@ class DefaultBBox():
                                         (_ymin + _ymax) / 2,
                                         (_xmax - _xmin),
                                         (_ymax - _ymin)])
-                    # _best_boxes.append([_xmin, _ymin, _xmax, _ymax])
             best_boxes_batch.append(_best_boxes)
 
         return best_boxes_batch
@@ -184,7 +183,6 @@ class DefaultBBox():
                         if self.iou(_bbox_1, _bbox_2) > 0.5:
                             _checks[_l] = 0
                             _checks[_k] = 2
-
 
             filter_bboxs_batch = []
             for _k in range(_num_bboxs):

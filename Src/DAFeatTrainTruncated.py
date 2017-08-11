@@ -35,7 +35,7 @@ BATCH_SIZE         = 5
 NUM_TRUNCATE       = 6
 NUM_EPOCH          = 3000
 MAX_ITERATION      = 100000
-LEARNING_RATE      = 0.00005      # Starting learning rate
+LEARNING_RATE      = 0.00001      # Starting learning rate
 DISPLAY_FREQUENCY  = 100;         INFO_DISPLAY = '\r%sLearning rate = %f - Epoch = %d - Iter = %d - Cost = %f - Best cost = %f - Best prec = %f - Mags = %f'
 SAVE_FREQUENCY     = 10000
 VALIDATE_FREQUENCY = 2000
@@ -56,8 +56,8 @@ SAVE_PATH       = '../Pretrained/Epoch=%d_Iter=%d.pkl'
 
 # LOAD MODEL PATH
 LOAD_MODEL_PATH = '../Pretrained/Epoch=%d_Iter=%d.pkl'
-START_EPOCH     = 28
-START_ITERATION = 96000
+START_EPOCH     = 314
+START_ITERATION = 420000
 START_FOLDER    = ''
 START_OBJECTID  = 0
 
@@ -160,9 +160,10 @@ def _get_data_sequence(_dataset,
                 _fe_index_neg = _create_fe_pos(_index_neg)
                 _indices_neg.append(_fe_index_neg)
                 _temp_bbox.append(_one_bbox)
+        _cost_neg = numpy.ones((len(_temp_bbox),), dtype = 'float32') * 10.
 
         _encode_x_pos_sequence.append([_feature, _bbox, _fe_index_pos])
-        _decode_x_neg_sequence.append([_feature, _temp_bbox, _indices_neg])
+        _decode_x_neg_sequence.append([_feature, _temp_bbox, _indices_neg, _cost_neg])
 
     return _encode_x_pos_sequence, _decode_x_neg_sequence
 
@@ -215,16 +216,16 @@ def _get_data(_encode_x_pos_sequence_batch,
             _index_pos   = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][2]
             _temp_bbox   = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][1]
             _indices_neg = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][2]
+            _cost_neg    = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][3]
 
             _fe_pos      = _extract_fe(_feature, _bbox, _index_pos)
 
-            _randomed_ids = range(len(_temp_bbox))
-            shuffle(_randomed_ids)
-            _randomed_ids = _randomed_ids[: _num_neg]
+            _sorted_ids = numpy.argsort(-_cost_neg)
+            _sorted_ids = _sorted_ids[: _num_neg]
 
             _fe_negs    = []
             _fe_negs_la = []
-            for _randomed_id in _randomed_ids:
+            for _randomed_id in _sorted_ids:
                 _fe_neg      = _extract_fe(_feature, _temp_bbox[_randomed_id], _indices_neg[_randomed_id])
                 _fe_negs.append(_fe_neg)
                 _fe_negs_la.append([0])
@@ -241,26 +242,62 @@ def _get_data(_encode_x_pos_sequence_batch,
     _decode_x_batch_sequence     = numpy.asarray(_decode_x_batch_sequence, dtype = 'float32')
     _decode_y_batch_sequence     = numpy.asarray(_decode_y_batch_sequence, dtype = 'float32')
 
+    _encode_x_pos_batch_sequence = _encode_x_pos_batch_sequence[:-1,]
+    _decode_x_batch_sequence     = _decode_x_batch_sequence[1:,]
+    _decode_y_batch_sequence     = _decode_y_batch_sequence[1:,]
+
     return _encode_x_pos_batch_sequence, _decode_x_batch_sequence, _decode_y_batch_sequence
 
-def _preprocess(_encode_x_batch,
-                _decode_x_batch,
-                _decode_y_batch,
-                _max_num_timestep):
-    for _batch_id in range(BATCH_SIZE):
-        _encode_x_batch[_batch_id] = numpy.pad(_encode_x_batch[_batch_id], ((0, _max_num_timestep - len(_encode_x_batch[_batch_id])), (0, 0)), mode ='constant', constant_values = 0)
-        _decode_x_batch[_batch_id] = numpy.pad(_decode_x_batch[_batch_id], ((0, _max_num_timestep - len(_decode_x_batch[_batch_id])), (0, 0), (0, 0)), mode ='constant', constant_values = 0)
-        _decode_y_batch[_batch_id] = numpy.pad(_decode_y_batch[_batch_id], ((0, _max_num_timestep - len(_decode_y_batch[_batch_id])), (0, 0)), mode = 'constant', constant_values=0)
+def _get_all_data(_encode_x_pos_sequence_batch,
+                  _decode_x_neg_sequence_batch,
+                  _mini_sequence_id,
+                  _batch_id):
+    _encode_x_pos_batch_sequence = []
+    _decode_x_batch_sequence     = []
+    _decode_y_batch_sequence     = []
+    for _trun_id in range(2):
+        _encode_x_pos_one_step = []
+        _decode_x_one_step     = []
+        _decode_y_one_step     = []
 
-        _encode_x_batch[_batch_id] = _encode_x_batch[_batch_id].reshape((_encode_x_batch[_batch_id].shape[0], 1, _encode_x_batch[_batch_id].shape[1]))
-        _decode_x_batch[_batch_id] = _decode_x_batch[_batch_id].reshape((_decode_x_batch[_batch_id].shape[0], 1, _decode_x_batch[_batch_id].shape[1] * _decode_x_batch[_batch_id].shape[2]))
-        _decode_y_batch[_batch_id] = _decode_y_batch[_batch_id].reshape((_decode_y_batch[_batch_id].shape[0], 1, _decode_y_batch[_batch_id].shape[1]))
+        _encode_x_pos_sequence, \
+        _decode_x_neg_sequence = _encode_x_pos_sequence_batch[_batch_id], _decode_x_neg_sequence_batch[_batch_id]
 
-    encode_x_batch = numpy.concatenate(tuple(_encode_x_batch), axis = 1)
-    decode_x_batch = numpy.concatenate(tuple(_decode_x_batch), axis = 1)
-    decode_y_batch = numpy.concatenate(tuple(_decode_y_batch), axis = 1)
+        _feature     = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][0]
+        _bbox        = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][1]
+        _index_pos   = _encode_x_pos_sequence[_trun_id + _mini_sequence_id][2]
+        _temp_bbox   = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][1]
+        _indices_neg = _decode_x_neg_sequence[_trun_id + _mini_sequence_id][2]
 
-    return encode_x_batch, decode_x_batch, decode_y_batch
+        _fe_pos      = _extract_fe(_feature, _bbox, _index_pos)
+
+        _all_ids = range(len(_temp_bbox))
+
+        _fe_negs    = []
+        _fe_negs_la = []
+        for _randomed_id in _all_ids:
+            _fe_neg      = _extract_fe(_feature, _temp_bbox[_randomed_id], _indices_neg[_randomed_id])
+            _fe_negs.append(_fe_neg)
+            _fe_negs_la.append([0])
+
+        _encode_x_pos_one_step.append(_fe_pos)
+        _decode_x_one_step.append([_fe_pos] + _fe_negs)
+        _decode_y_one_step.append([[1]] + _fe_negs_la)
+
+        _encode_x_pos_batch_sequence.append(_encode_x_pos_one_step)
+        _decode_x_batch_sequence.append(_decode_x_one_step)
+        _decode_y_batch_sequence.append(_decode_y_one_step)
+
+    _encode_x_pos_batch_sequence = _encode_x_pos_batch_sequence[:-1]
+    _decode_x_batch_sequence     = _decode_x_batch_sequence[1:]
+    _decode_y_batch_sequence     = _decode_y_batch_sequence[1:]
+
+    _encode_x_pos_batch_sequence = numpy.asarray(_encode_x_pos_batch_sequence, dtype = 'float32')
+    _decode_x_batch_sequence     = numpy.asarray(_decode_x_batch_sequence, dtype = 'float32')
+    _decode_y_batch_sequence     = numpy.asarray(_decode_y_batch_sequence, dtype = 'float32')
+
+    return _encode_x_pos_batch_sequence, _decode_x_batch_sequence, _decode_y_batch_sequence
+
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -445,7 +482,7 @@ def _train_model():
     # ===== Load state =====
     print ('|-- Load state !')
     if check_file_exist(STATE_PATH, _throw_error = False):
-        _file = open(BEST_COST_PATH)
+        _file = open(STATE_PATH)
         DAFeat_model.load_state(_file)
         _file.close()
     print ('|-- Load state ! Completed')
@@ -511,7 +548,7 @@ def _train_model():
                 _decode_y_sequence = _get_data(_encode_x_pos_sequence_batch,
                                                _decode_x_neg_sequence_batch,
                                                _mini_sequence_id,
-                                               1)
+                                               5)
 
                 # Update
                 _iter += 1
@@ -587,6 +624,48 @@ def _train_model():
                     DAFeat_model.save_state(_file)
                     _file.close()
                     print ('+ Save state ! Completed !')
+        update_cost(train_data, _pre_extract)
+
+def update_cost(train_data, _pre_extract):
+    _num_batch_train_data     = len(train_data)  // BATCH_SIZE
+    _all_batch_train_data_ids = range(_num_batch_train_data)
+    _num_batch_trained_data   = 0
+    _start_h_sequence         = numpy.zeros((1, DA_EN_HIDDEN_SIZE,), dtype='float32')
+    for _batch_train_data_idx in _all_batch_train_data_ids:
+        # Get batch of object id
+        _train_samples = train_data[_batch_train_data_idx * BATCH_SIZE:
+                                   (_batch_train_data_idx + 1) * BATCH_SIZE]
+
+        if _batch_train_data_idx in _pre_extract:
+            _encode_x_pos_sequence_batch, \
+            _decode_x_neg_sequence_batch, \
+            _max_num_timestep = _pre_extract[_batch_train_data_idx]
+
+        _encode_h_sequence = _start_h_sequence
+        _num_mini_sequence = (_max_num_timestep - 1)
+        for _batch_id in range(BATCH_SIZE):
+            _num_batch_trained_data += 1
+            for _mini_sequence_id in range(_num_mini_sequence):
+                _encode_x_pos_sequence, \
+                _decode_x_sequence, \
+                _decode_y_sequence = _get_all_data(_encode_x_pos_sequence_batch,
+                                                   _decode_x_neg_sequence_batch,
+                                                   _mini_sequence_id,
+                                                   _batch_id)
+
+                result = DAFeat_model.cost_func(_encode_x_pos_sequence,
+                                                _encode_h_sequence,
+                                                _decode_x_sequence,
+                                                _decode_y_sequence)
+                _prob              = result[0]
+                _encode_h_sequence = result[1]
+
+                _prob = _prob[:, :, 1:,]
+                _prob = _prob[0,0,]
+                for _idx, _one_prob in enumerate(_prob):
+                    _decode_x_neg_sequence_batch[_batch_id][_mini_sequence_id + 1][3][_idx] = _one_prob
+
+            print '\r|-- Update cost %d / %d sequences                                        ' % (_num_batch_trained_data, _num_batch_train_data * BATCH_SIZE),
 
 ########################################################################################################################
 #                                                                                                                      #

@@ -191,6 +191,57 @@ def create_feature(_feature, _all_bbox, _indices_bbox):
     decode_x_batch_sequence = numpy.asarray(decode_x_batch_sequence, dtype = 'float32')
     return decode_x_batch_sequence
 
+def _create_id(_selected_id):
+    for _new_id in range(1, NUM_OBJECT + 1):
+        if _selected_id[_new_id] == 0:
+            return _new_id
+
+def _match_bboxs(_match,
+                 _encode_h_sequence,
+                 _decode_x_batch_sequence,
+                 _id_bboxs,
+                 _bboxs,
+                 _prob):
+    encode_x_pos_batch_sequence = []
+    encode_h_sequence           = []
+    id_bboxs                    = []
+    bboxs                       = []
+
+    _selected_ids = numpy.zeros((NUM_OBJECT + 1,))
+    _zero_state = numpy.zeros((DA_EN_HIDDEN_SIZE,), dtype = 'float32')
+    _check = numpy.ones((len(_bboxs),), dtype = bool)
+    _match = _match[0]
+    _prob  = _prob[0]
+    for _id_match, _one_prob in enumerate(_prob):
+        _selected_id = -1
+        _best_prob   = 0.95
+        for _id_bbox, _bbox in enumerate(_bboxs):
+            if _one_prob[_id_bbox] > _best_prob:
+                _selected_id = _id_bbox
+                _best_prob   = _one_prob[_id_bbox]
+
+        if _selected_id != -1:
+            encode_x_pos_batch_sequence.append(_decode_x_batch_sequence[_selected_id,])
+            encode_h_sequence.append(_encode_h_sequence[_id_match,])
+            id_bboxs.append(_id_bboxs[_id_match])
+            bboxs.append(_bboxs[_selected_id])
+            _check[_selected_id] = False
+            _selected_ids[int(_id_bboxs[_id_match])] = 1
+
+    for _id_check, _one_check in enumerate(_check):
+        if _one_check:
+            encode_x_pos_batch_sequence.append(_decode_x_batch_sequence[_id_check,])
+            encode_h_sequence.append(_zero_state)
+            _new_id = _create_id(_selected_ids)
+            _selected_ids[_new_id] = 1
+            id_bboxs.append(_new_id)
+            bboxs.append(_bboxs[_id_check])
+
+    encode_x_pos_batch_sequence = numpy.asarray([encode_x_pos_batch_sequence])
+    encode_h_sequence           = numpy.asarray(encode_h_sequence)
+    return encode_x_pos_batch_sequence, encode_h_sequence, id_bboxs, bboxs
+
+
 ########################################################################################################################
 #                                                                                                                      #
 #    CREATE PLOT MANAGER                                                                                               #
@@ -220,6 +271,7 @@ def _test_model():
     _pre_bboxs = numpy.zeros((NUM_OBJECT, 4))
     _id_bboxs  = numpy.zeros((NUM_OBJECT, ))
 
+    _encode_x_pos_batch_sequence = None
     for k in range(1, 500):
         _imgs_path        = [IMAGE_PATH % k]
         _raw_im           = cv2.imread(_imgs_path[0])
@@ -230,25 +282,35 @@ def _test_model():
         _bbou         = default_bboxs.bbou(_best_bbox)[0]
         _indices_bbox = create_indices_bbox(_bbou)
 
-        _decode_x_batch_sequence = create_feature(_feat, _bbou, _indices_bbox)
+        _decode_x_sequence = create_feature(_feat, _bbou, _indices_bbox)
 
         if k == 1:
-            _id_bboxs  = range(len(_bbou))
+            _id_bboxs  = range(1, len(_bbou) + 1)
             _cur_bboxs = _bbou
-        else:
-            if k == 2:
-                _encode_h_sequence = numpy.zeros((_decode_x_batch_sequence.shape[1], DA_EN_HIDDEN_SIZE), dtype='float32')
 
+            _encode_x_pos_batch_sequence = _decode_x_sequence[0, ]
+            _encode_h_sequence           = numpy.zeros((_encode_x_pos_batch_sequence.shape[1], DA_EN_HIDDEN_SIZE), dtype='float32')
+            # _encode_x_pos_batch_sequence = _decode_x_sequence[0, ]
+            # _encode_x_pos_batch_sequence = _encode_x_pos_batch_sequence[0, 0, ]
+            # _encode_x_pos_batch_sequence = numpy.asarray([[_encode_x_pos_batch_sequence]])
+            # _encode_h_sequence           = numpy.zeros((1, DA_EN_HIDDEN_SIZE), dtype='float32')
+        else:
+            _decode_x_batch_sequence = numpy.repeat(_decode_x_sequence, _encode_x_pos_batch_sequence.shape[1], 1)
             _result = DAFeat_model.pred_func(_encode_x_pos_batch_sequence,
                                              _encode_h_sequence,
                                              _decode_x_batch_sequence)
-            _match = _result[0]
+            _match             = _result[0]
+            _encode_h_sequence = _result[1]
+            _prob              = _result[2]
 
-            _cur_bboxs,\
-            _id_bboxs  = _match_bboxs(_pre_bboxs, _id_bboxs, _bbou, _match)
-            _pre_bboxs = _cur_bboxs
-
-        _encode_x_pos_batch_sequence = _decode_x_batch_sequence
+            _encode_x_pos_batch_sequence, \
+            _encode_h_sequence, \
+            _id_bboxs, \
+            _cur_bboxs = _match_bboxs(_match,
+                                      _encode_h_sequence,
+                                      _decode_x_batch_sequence[0, 0, ],
+                                      _id_bboxs, _bbou,
+                                      _prob)
 
         plot_manager.update_main_plot(_raw_im)
         plot_manager.draw_bboxs(_id_bboxs, _cur_bboxs)

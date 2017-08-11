@@ -54,7 +54,8 @@ class DAFeatModel():
         _pred        = _prob >= 0.5
         _truth       = self.decode_y_batch >= 0.5
         _precision   = T.mean(T.eq(_pred, _truth))
-        _cost_batch  = T.mean(self.decode_y_batch * -T.log(_prob) + (1 - self.decode_y_batch) * -T.log(1 - _prob))
+        _all_cost    = self.decode_y_batch * -T.log(_prob) + (1 - self.decode_y_batch) * -T.log(1 - _prob)
+        _cost_batch  = T.mean(_all_cost)
 
         # ----- Params -----
         _params = self.DAFeat_en_net.layer['rnn_trun'].params[0:3] + \
@@ -84,7 +85,9 @@ class DAFeatModel():
                                           updates = updates,
                                           outputs = [_cost_batch,
                                                      _last_en_H,
-                                                     _magnitude])
+                                                     _magnitude,
+                                                     _prob,
+                                                     self.decode_y_batch])
 
         # ----- Valid function -----
         self.valid_func = theano.function(inputs  = [self.encode_x_pos_batch,
@@ -95,11 +98,21 @@ class DAFeatModel():
                                                      _precision,
                                                      _last_en_H])
 
+        # ----- Valid function -----
+        self.cost_func = theano.function(inputs=[self.encode_x_pos_batch,
+                                                 self.encode_h_pos_batch,
+                                                 self.decode_x_batch,
+                                                 self.decode_y_batch],
+                                         outputs=[_all_cost,
+                                                  _last_en_H])
+
         # ----- Pred function -----
         self.pred_func = theano.function(inputs  = [self.encode_x_pos_batch,
                                                     self.encode_h_pos_batch,
                                                     self.decode_x_batch],
-                                         outputs = [_pred])
+                                         outputs = [_pred,
+                                                    _last_en_H,
+                                                    _prob])
 
     def save_model(self, file):
         self.DAFeat_en_net.layer['rnn_trun'].save_model(file)

@@ -20,8 +20,8 @@ class DefaultBBox():
     def __init__(self,
                  _bbox_opts):
         # Save information to its layer
-        self.image_width  = _bbox_opts.opts['image_width']
-        self.image_height = _bbox_opts.opts['image_height']
+        self.image_width  = _bbox_opts.opts['image_width'] * 1.0
+        self.image_height = _bbox_opts.opts['image_height'] * 1.0
         self.s_min        = _bbox_opts.opts['smin']
         self.s_max        = _bbox_opts.opts['smax']
         self.layer_sizes  = _bbox_opts.opts['layer_sizes']

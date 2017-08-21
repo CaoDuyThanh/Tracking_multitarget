@@ -35,15 +35,15 @@ BATCH_SIZE         = 5
 NUM_TRUNCATE       = 6
 NUM_EPOCH          = 3000
 MAX_ITERATION      = 100000
-LEARNING_RATE      = 0.00001      # Starting learning rate
+LEARNING_RATE      = 0.00001       # Starting learning rate
 DISPLAY_FREQUENCY  = 100;         INFO_DISPLAY = '\r%sLearning rate = %f - Epoch = %d - Iter = %d - Cost = %f - Best cost = %f - Best prec = %f - Mags = %f'
-SAVE_FREQUENCY     = 10000
+SAVE_FREQUENCY     = 2000
 VALIDATE_FREQUENCY = 2000
 
 # LSTM NETWORK CONFIG
 NUM_OBJECT        = 65
 DA_EN_INPUT_SIZE  = 128 * 6 + 4
-DA_EN_HIDDEN_SIZE = 256
+DA_EN_HIDDEN_SIZE = 512
 DA_DE_INPUT_SIZE  = (128 + 4) * NUM_OBJECT
 DA_DE_OUTPUT_SIZE = NUM_OBJECT + 1
 
@@ -56,8 +56,8 @@ SAVE_PATH       = '../Pretrained/Epoch=%d_Iter=%d.pkl'
 
 # LOAD MODEL PATH
 LOAD_MODEL_PATH = '../Pretrained/Epoch=%d_Iter=%d.pkl'
-START_EPOCH     = 314
-START_ITERATION = 420000
+START_EPOCH     = 1173
+START_ITERATION = 1576000
 START_FOLDER    = ''
 START_OBJECTID  = 0
 
@@ -161,6 +161,7 @@ def _get_data_sequence(_dataset,
                 _indices_neg.append(_fe_index_neg)
                 _temp_bbox.append(_one_bbox)
         _cost_neg = numpy.ones((len(_temp_bbox),), dtype = 'float32') * 10.
+        _cost_neg = _cost_neg / _cost_neg.sum()
 
         _encode_x_pos_sequence.append([_feature, _bbox, _fe_index_pos])
         _decode_x_neg_sequence.append([_feature, _temp_bbox, _indices_neg, _cost_neg])
@@ -205,7 +206,7 @@ def _get_data(_encode_x_pos_sequence_batch,
     _encode_x_pos_batch_sequence = []
     _decode_x_batch_sequence     = []
     _decode_y_batch_sequence     = []
-    for _trun_id in range(NUM_TRUNCATE):
+    for _trun_id in range(NUM_TRUNCATE + 1):
         _encode_x_pos_one_step = []
         _decode_x_one_step     = []
         _decode_y_one_step     = []
@@ -220,8 +221,8 @@ def _get_data(_encode_x_pos_sequence_batch,
 
             _fe_pos      = _extract_fe(_feature, _bbox, _index_pos)
 
-            _sorted_ids = numpy.argsort(-_cost_neg)
-            _sorted_ids = _sorted_ids[: _num_neg]
+            _ids = numpy.arange(len(_temp_bbox))
+            _sorted_ids = numpy.random.choice(_ids, size = _num_neg, p = _cost_neg)
 
             _fe_negs    = []
             _fe_negs_la = []
@@ -251,11 +252,13 @@ def _get_data(_encode_x_pos_sequence_batch,
 def _get_all_data(_encode_x_pos_sequence_batch,
                   _decode_x_neg_sequence_batch,
                   _mini_sequence_id,
-                  _batch_id):
+                  _batch_id,
+                  _num_trun,
+                  _dtype = 'float32'):
     _encode_x_pos_batch_sequence = []
     _decode_x_batch_sequence     = []
     _decode_y_batch_sequence     = []
-    for _trun_id in range(2):
+    for _trun_id in range(_num_trun):
         _encode_x_pos_one_step = []
         _decode_x_one_step     = []
         _decode_y_one_step     = []
@@ -275,6 +278,7 @@ def _get_all_data(_encode_x_pos_sequence_batch,
 
         _fe_negs    = []
         _fe_negs_la = []
+
         for _randomed_id in _all_ids:
             _fe_neg      = _extract_fe(_feature, _temp_bbox[_randomed_id], _indices_neg[_randomed_id])
             _fe_negs.append(_fe_neg)
@@ -292,12 +296,11 @@ def _get_all_data(_encode_x_pos_sequence_batch,
     _decode_x_batch_sequence     = _decode_x_batch_sequence[1:]
     _decode_y_batch_sequence     = _decode_y_batch_sequence[1:]
 
-    _encode_x_pos_batch_sequence = numpy.asarray(_encode_x_pos_batch_sequence, dtype = 'float32')
-    _decode_x_batch_sequence     = numpy.asarray(_decode_x_batch_sequence, dtype = 'float32')
-    _decode_y_batch_sequence     = numpy.asarray(_decode_y_batch_sequence, dtype = 'float32')
+    _encode_x_pos_batch_sequence = numpy.asarray(_encode_x_pos_batch_sequence, dtype = _dtype)
+    _decode_x_batch_sequence     = numpy.asarray(_decode_x_batch_sequence, dtype = _dtype)
+    _decode_y_batch_sequence     = numpy.asarray(_decode_y_batch_sequence, dtype = _dtype)
 
     return _encode_x_pos_batch_sequence, _decode_x_batch_sequence, _decode_y_batch_sequence
-
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -349,16 +352,17 @@ def _valid_model(_dataset, _valid_data, _pre_extract):
     _iter  = 0
     _epoch = 0
     _costs = []
-    _precs = []
+    _preds = []
+    _sums  = []
 
     # ----- Starting parameter -----
-    _start_h_sequence = numpy.zeros((BATCH_SIZE, DA_EN_HIDDEN_SIZE,), dtype='float32')
-    _start_c_sequence = numpy.zeros((BATCH_SIZE, DA_EN_HIDDEN_SIZE,), dtype='float32')
+    _start_h_sequence = numpy.zeros((1, DA_EN_HIDDEN_SIZE,), dtype='float32')
 
     _num_batch_valid_data     = len(_valid_data) // BATCH_SIZE
     _all_batch_valid_data_ids = range(_num_batch_valid_data)
     shuffle(_all_batch_valid_data_ids)
     _num_batch_valided_data   = 0
+
     for _batch_valid_data_idx in _all_batch_valid_data_ids:
         # Get batch of object id
         _train_samples = _valid_data[_batch_valid_data_idx      * BATCH_SIZE:
@@ -388,39 +392,40 @@ def _valid_model(_dataset, _valid_data, _pre_extract):
                                                    _decode_x_neg_sequence_batch,
                                                    _max_num_timestep]
 
-        _num_batch_valided_data += 1
-        _encode_h_sequence = _start_h_sequence
-        _num_mini_sequence = (_max_num_timestep - 1) // NUM_TRUNCATE
-        for _mini_sequence_id in range(_num_mini_sequence):
-            _valid_start_time = timeit.default_timer()
+        for _batch_id in range(BATCH_SIZE):
+            _valid_start_time        = timeit.default_timer()
+            _num_batch_valided_data += 1
+            _encode_h_sequence       = _start_h_sequence
+            _num_mini_sequence       = (_max_num_timestep - 1)
+            for _mini_sequence_id in range(_num_mini_sequence):
+                _encode_x_pos_sequence, \
+                _decode_x_sequence, \
+                _decode_y_sequence = _get_all_data(_encode_x_pos_sequence_batch,
+                                                   _decode_x_neg_sequence_batch,
+                                                   _mini_sequence_id,
+                                                   _batch_id,
+                                                   2)
 
-            _encode_x_pos_sequence, \
-            _decode_x_sequence, \
-            _decode_y_sequence = _get_data(_encode_x_pos_sequence_batch,
-                                           _decode_x_neg_sequence_batch,
-                                           _mini_sequence_id,
-                                           10)
+                # Update
+                _iter += 1
+                result = DAFeat_model.valid_func(_encode_x_pos_sequence,
+                                                 _encode_h_sequence,
+                                                 _decode_x_sequence,
+                                                 _decode_y_sequence)
 
-            # Update
-            _iter += 1
-            result = DAFeat_model.valid_func(_encode_x_pos_sequence,
-                                             _encode_h_sequence,
-                                             _decode_x_sequence,
-                                             _decode_y_sequence)
+                # Temporary save info
+                _costs.append(result[0])
+                _preds.append(result[1])
+                _sums.append(1)
+                _encode_h_sequence = result[2]
 
-            # Temporary save info
-            _costs.append(result[0])
-            _precs.append(result[1])
-            _encode_h_sequence = result[2]
+                if _iter % DISPLAY_FREQUENCY == 0:
+                    # Print information of current validating in progress
+                    print (INFO_DISPLAY % ('    |-- ', 0, _epoch, _iter, numpy.mean(_costs), 0, 0, 0))
 
             _valid_end_time = timeit.default_timer()
-
-            print '\r|-- Validated %d / %d batch - Time = %f' % (_num_batch_valided_data, _num_batch_valid_data, _valid_end_time - _valid_start_time),
-
-            if _iter % DISPLAY_FREQUENCY == 0:
-                # Print information of current validating in progress
-                print (INFO_DISPLAY % ('    |-- ', 0, _epoch, _iter, numpy.mean(_costs), 0, 0, 0))
-    return numpy.mean(_costs), numpy.mean(_precs), _pre_extract
+            print '\r|-- Validated %d / %d sequence - Time = %f' % (_num_batch_valided_data, _num_batch_valid_data * BATCH_SIZE, _valid_end_time - _valid_start_time),
+    return numpy.mean(_costs), numpy.sum(_preds) / numpy.sum(_sums), _pre_extract
 
 ########################################################################################################################
 #                                                                                                                      #
@@ -540,15 +545,22 @@ def _train_model():
             _num_batch_trained_data += 1
             _encode_h_sequence = _start_h_sequence
             _num_mini_sequence = (_max_num_timestep - 1) // NUM_TRUNCATE
-            for _mini_sequence_id in range(_num_mini_sequence):
+            for _mini_sequence_count in range(_num_mini_sequence):
+                _mini_sequence_id = _mini_sequence_count * NUM_TRUNCATE
                 _train_start_time = timeit.default_timer()
+
+                # Update cost
+                _update_cost_mini_sequence(_encode_x_pos_sequence_batch,
+                                           _decode_x_neg_sequence_batch,
+                                           _encode_h_sequence,
+                                           _mini_sequence_id)
 
                 _encode_x_pos_sequence, \
                 _decode_x_sequence, \
                 _decode_y_sequence = _get_data(_encode_x_pos_sequence_batch,
                                                _decode_x_neg_sequence_batch,
                                                _mini_sequence_id,
-                                               5)
+                                               2)
 
                 # Update
                 _iter += 1
@@ -624,7 +636,44 @@ def _train_model():
                     DAFeat_model.save_state(_file)
                     _file.close()
                     print ('+ Save state ! Completed !')
-        update_cost(train_data, _pre_extract)
+
+def _update_cost_mini_sequence(_encode_x_pos_sequence_batch,
+                               _decode_x_neg_sequence_batch,
+                               _encode_h_sequence_batch,
+                               _mini_sequence_id):
+    for _batch_id in range(BATCH_SIZE):
+        _encode_h_sequence = _encode_h_sequence_batch[_batch_id]
+        _encode_h_sequence = _encode_h_sequence.reshape((1, DA_EN_HIDDEN_SIZE))
+
+        _encode_x_pos_mini_sequence, \
+        _decode_x_mini_sequence, _ = _get_all_data(_encode_x_pos_sequence_batch,
+                                                   _decode_x_neg_sequence_batch,
+                                                   _mini_sequence_id,
+                                                   _batch_id,
+                                                   NUM_TRUNCATE + 1,
+                                                   'object')
+
+        _encode_x_pos_mini_sequence = _encode_x_pos_mini_sequence.astype('float32')
+        _max_len = max([len(_decode_x_mini[0]) for _decode_x_mini in _decode_x_mini_sequence])
+        _decode_x_mini_sequence = [[numpy.pad(_decode_x_mini[0], ((0, _max_len - len(_decode_x_mini[0])), (0, 0)), 'constant', constant_values = 0)]
+                                   for _decode_x_mini in _decode_x_mini_sequence]
+        _decode_x_mini_sequence = numpy.asarray(_decode_x_mini_sequence, dtype = 'float32')
+
+        result = DAFeat_model.cost_func(_encode_x_pos_mini_sequence,
+                                        _encode_h_sequence,
+                                        _decode_x_mini_sequence)
+        _prob = result[0]
+        _prob = _prob[:, :, 1:, ]
+        for _sequence_id in range(_mini_sequence_id, _mini_sequence_id + NUM_TRUNCATE):
+            _id = _sequence_id - _mini_sequence_id
+            _prob_step = _prob[_id, 0, :]
+
+            _num_prob_step = len(_decode_x_neg_sequence_batch[_batch_id][_sequence_id + 1][3])
+            for _idx in range(_num_prob_step):
+                _one_prob = _prob_step[_idx]
+                _decode_x_neg_sequence_batch[_batch_id][_sequence_id + 1][3][_idx] = _one_prob
+            _decode_x_neg_sequence_batch[_batch_id][_sequence_id + 1][3] = _decode_x_neg_sequence_batch[_batch_id][_sequence_id + 1][3] / \
+                                                                           _decode_x_neg_sequence_batch[_batch_id][_sequence_id + 1][3].sum()
 
 def update_cost(train_data, _pre_extract):
     _num_batch_train_data     = len(train_data)  // BATCH_SIZE
@@ -632,31 +681,27 @@ def update_cost(train_data, _pre_extract):
     _num_batch_trained_data   = 0
     _start_h_sequence         = numpy.zeros((1, DA_EN_HIDDEN_SIZE,), dtype='float32')
     for _batch_train_data_idx in _all_batch_train_data_ids:
-        # Get batch of object id
-        _train_samples = train_data[_batch_train_data_idx * BATCH_SIZE:
-                                   (_batch_train_data_idx + 1) * BATCH_SIZE]
-
         if _batch_train_data_idx in _pre_extract:
             _encode_x_pos_sequence_batch, \
             _decode_x_neg_sequence_batch, \
             _max_num_timestep = _pre_extract[_batch_train_data_idx]
 
-        _encode_h_sequence = _start_h_sequence
-        _num_mini_sequence = (_max_num_timestep - 1)
         for _batch_id in range(BATCH_SIZE):
             _num_batch_trained_data += 1
+            _encode_h_sequence = _start_h_sequence
+            _num_mini_sequence = (_max_num_timestep - 1)
             for _mini_sequence_id in range(_num_mini_sequence):
                 _encode_x_pos_sequence, \
                 _decode_x_sequence, \
                 _decode_y_sequence = _get_all_data(_encode_x_pos_sequence_batch,
                                                    _decode_x_neg_sequence_batch,
                                                    _mini_sequence_id,
-                                                   _batch_id)
+                                                   _batch_id,
+                                                   2)
 
                 result = DAFeat_model.cost_func(_encode_x_pos_sequence,
                                                 _encode_h_sequence,
-                                                _decode_x_sequence,
-                                                _decode_y_sequence)
+                                                _decode_x_sequence)
                 _prob              = result[0]
                 _encode_h_sequence = result[1]
 
@@ -664,6 +709,8 @@ def update_cost(train_data, _pre_extract):
                 _prob = _prob[0,0,]
                 for _idx, _one_prob in enumerate(_prob):
                     _decode_x_neg_sequence_batch[_batch_id][_mini_sequence_id + 1][3][_idx] = _one_prob
+                _decode_x_neg_sequence_batch[_batch_id][_mini_sequence_id + 1][3] = _decode_x_neg_sequence_batch[_batch_id][_mini_sequence_id + 1][3] / \
+                                                                                    _decode_x_neg_sequence_batch[_batch_id][_mini_sequence_id + 1][3].sum()
 
             print '\r|-- Update cost %d / %d sequences                                        ' % (_num_batch_trained_data, _num_batch_train_data * BATCH_SIZE),
 

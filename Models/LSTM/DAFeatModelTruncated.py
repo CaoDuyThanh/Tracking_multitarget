@@ -51,8 +51,8 @@ class DAFeatModel():
         _prob   = T.nnet.sigmoid(_output)
 
         # ----- Confidence loss -----
-        _pred        = _prob >= 0.5
-        _truth       = self.decode_y_batch >= 0.5
+        _pred        = T.argmax(_prob, axis = 2)
+        _truth       = T.argmax(self.decode_y_batch, axis = 2)
         _precision   = T.mean(T.eq(_pred, _truth))
         _all_cost    = self.decode_y_batch * -T.log(_prob) + (1 - self.decode_y_batch) * -T.log(1 - _prob)
         _cost_batch  = T.mean(_all_cost)
@@ -101,9 +101,8 @@ class DAFeatModel():
         # ----- Valid function -----
         self.cost_func = theano.function(inputs=[self.encode_x_pos_batch,
                                                  self.encode_h_pos_batch,
-                                                 self.decode_x_batch,
-                                                 self.decode_y_batch],
-                                         outputs=[_all_cost,
+                                                 self.decode_x_batch],
+                                         outputs=[_prob,
                                                   _last_en_H])
 
         # ----- Pred function -----
